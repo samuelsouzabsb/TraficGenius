@@ -1,5 +1,8 @@
-import pandas as pd
+import tensorflow as tf
 
-df = pd.read_parquet(r"C:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset\dataset_consolidado.parquet")
+print(tf.__version__)
 
-print(df.head())
+a = tf.constant([1, 2, 3])
+b = tf.constant([4, 5, 6])
+
+print(a + b)

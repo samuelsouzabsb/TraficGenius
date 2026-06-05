@@ -32,7 +32,7 @@ def export_historical_data():
     data = {
         "time_vs_sun": { "labels": [f"{i}h" for i in range(24)], "day": [], "night": [] },
         "weather_matrix": [],  # Matriz de espalhamento multivariada (Scatter plot data)
-        "infra_radar": { "labels": ["Crossing", "Junction", "Traffic_Signal", "Station", "Stop"], "values": [] },
+        "infra_radar": { "labels": ["Cruzamento", "Juncao", "Semaforo", "Estacao", "Pare"], "values": [] },
         "severity_donut": { "labels": ["G1", "G2", "G3", "G4"], "values": [] },
         "distance_hist": { "labels": ["< 1mi", "1-3mi", "3-5mi", "> 5mi"], "values": [] }
     }
@@ -43,30 +43,30 @@ def export_historical_data():
         
         # 1. Agregação Temporal Dividida por Período de Sol (Time vs Sun)
         # Calcula a frequência horária de incidentes segregando se ocorreram durante o Dia ou Noite
-        if 'Hora_do_Dia' in df.columns and 'Sunrise_Sunset' in df.columns:
+        if 'Hora_do_Dia' in df.columns and 'Nascer_Por_Sol' in df.columns:
             for h in range(24):
                 hour_data = df[df['Hora_do_Dia'] == h]
-                day = len(hour_data[hour_data['Sunrise_Sunset'] == 'Day'])
-                night = len(hour_data[hour_data['Sunrise_Sunset'] == 'Night'])
+                day = len(hour_data[hour_data['Nascer_Por_Sol'] == 'Day'])
+                night = len(hour_data[hour_data['Nascer_Por_Sol'] == 'Night'])
                 data["time_vs_sun"]["day"].append(day)
                 data["time_vs_sun"]["night"].append(night)
         
         # 2. Matriz Climática Multivariada (Weather Matrix - Scatter Sample)
         # Seleciona uma amostra aleatória de 300 pontos contendo temperatura, visibilidade, umidade e severidade.
         # Utilizado para mapeamento tridimensional ou correlação visual.
-        if set(['Temperature(F)', 'Visibility(mi)', 'Humidity(%)', 'Severity']).issubset(df.columns):
-            weather_sample = df.dropna(subset=['Temperature(F)', 'Visibility(mi)', 'Humidity(%)']).sample(min(300, len(df)))
+        if set(['Temperatura_F', 'Visibilidade_Milhas', 'Umidade_Percentual', 'Severidade']).issubset(df.columns):
+            weather_sample = df.dropna(subset=['Temperatura_F', 'Visibilidade_Milhas', 'Umidade_Percentual']).sample(min(300, len(df)))
             for _, row in weather_sample.iterrows():
                 data["weather_matrix"].append({
-                    "temp": float(row['Temperature(F)']),
-                    "vis": float(row['Visibility(mi)']),
-                    "hum": float(row['Humidity(%)']),
-                    "sev": int(row['Severity'])
+                    "temp": float(row['Temperatura_F']),
+                    "vis": float(row['Visibilidade_Milhas']),
+                    "hum": float(row['Umidade_Percentual']),
+                    "sev": int(row['Severidade'])
                 })
         
-        # 3. Presença de Infraestrutura Rodoviária (Infrastructure Radar - Crossing, Junction, Traffic Signal, etc.)
+        # 3. Presença de Infraestrutura Rodoviária (Infrastructure Radar - Cruzamento, Juncao, Semaforo, etc.)
         # Soma a presença booleana (convertida para 0 ou 1) de elementos de via física no local dos acidentes.
-        infra_cols = ["Crossing", "Junction", "Traffic_Signal", "Station", "Stop"]
+        infra_cols = ["Cruzamento", "Juncao", "Semaforo", "Estacao", "Pare"]
         for col in infra_cols:
             if col in df.columns:
                 count = int(df[col].sum())
@@ -75,15 +75,15 @@ def export_historical_data():
                 data["infra_radar"]["values"].append(0)
                 
         # 4. Distribuição Geral das Quatro Classes de Severidade (Severity Donut Chart)
-        if 'Severity' in df.columns:
+        if 'Severidade' in df.columns:
             for s in [1, 2, 3, 4]:
-                count = len(df[df['Severity'] == s])
+                count = len(df[df['Severidade'] == s])
                 data["severity_donut"]["values"].append(count)
                 
         # 5. Histograma da Extensão de Congestionamento (Distance Hist)
         # Classifica a distância da rodovia impactada pelo acidente em faixas definidas (bins)
-        if 'Distance(mi)' in df.columns:
-            d = df['Distance(mi)']
+        if 'Distancia_Milhas' in df.columns:
+            d = df['Distancia_Milhas']
             data["distance_hist"]["values"] = [
                 len(d[d < 1]),
                 len(d[(d >= 1) & (d < 3)]),

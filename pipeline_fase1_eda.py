@@ -28,17 +28,59 @@ from sklearn.cluster import MiniBatchKMeans
 # Ignora avisos (warnings) do Python/scikit-learn para manter a saída de log limpa
 warnings.filterwarnings('ignore')
 
-def load_and_sample_data(folder_path, sample_size=200000):
+COLUMNS_MAPPING = {
+    'Severity': 'Severidade',
+    'Start_Time': 'Tempo_Inicial',
+    'Start_Lat': 'Latitude_Inicial',
+    'Start_Lng': 'Longitude_Inicial',
+    'Distance(mi)': 'Distancia_Milhas',
+    'Temperature(F)': 'Temperatura_F',
+    'Wind_Chill(F)': 'Sensacao_Termica_F',
+    'Humidity(%)': 'Umidade_Percentual',
+    'Pressure(in)': 'Pressao_Polegadas',
+    'Visibility(mi)': 'Visibilidade_Milhas',
+    'Wind_Speed(mph)': 'Velocidade_Vento_Mph',
+    'Precipitation(in)': 'Precipitacao_Polegadas',
+    'Amenity': 'Comodidade',
+    'Bump': 'Lombada',
+    'Crossing': 'Cruzamento',
+    'Give_Way': 'Preferencia',
+    'Junction': 'Juncao',
+    'No_Exit': 'Sem_Saida',
+    'Railway': 'Via_Ferrea',
+    'Roundabout': 'Rotatoria',
+    'Station': 'Estacao',
+    'Stop': 'Pare',
+    'Traffic_Calming': 'Redutor_Velocidade',
+    'Traffic_Signal': 'Semaforo',
+    'Sunrise_Sunset': 'Nascer_Por_Sol'
+}
+
+def rename_columns(df):
     """
-    Carrega os dados de forma otimizada para a memória RAM (Memory-Efficient loading)
-    e extrai uma amostra aleatória estratificada/controlada baseada nos row groups do Parquet.
+    Renomeia as colunas do dataset original de inglês para português do Brasil para melhor legibilidade.
+    
+    Parâmetros (Parameters):
+    - df (pd.DataFrame): DataFrame com colunas originais em inglês.
+    
+    Retorno (Returns):
+    - df (pd.DataFrame): DataFrame com colunas renomeadas em português.
+    """
+    print("Renomeando colunas do dataset para o português...")
+    return df.rename(columns=COLUMNS_MAPPING)
+
+
+def load_and_sample_data(folder_path, sample_size=None):
+    """
+    Carrega os dados de forma otimizada para a memória RAM (Memory-Efficient loading).
+    Se sample_size for None, lê a base de dados completa. Caso contrário, extrai uma amostra.
     
     Parâmetros (Parameters):
     - folder_path (str): Diretório contendo as bases de dados (.parquet).
-    - sample_size (int): Quantidade máxima de linhas a serem selecionadas para amostragem.
+    - sample_size (int, opcional): Quantidade máxima de linhas a serem selecionadas para amostragem.
     
     Retorno (Returns):
-    - df_sample (pd.DataFrame): DataFrame do Pandas contendo a amostra selecionada.
+    - df_sample (pd.DataFrame): DataFrame do Pandas contendo os dados carregados.
     """
     import pyarrow.parquet as pq
     import random
@@ -56,53 +98,60 @@ def load_and_sample_data(folder_path, sample_size=200000):
         'Sunrise_Sunset'
     ]
     
-    row_groups_info = []  # Lista para mapear onde cada bloco (row group) está
-    
-    # 1.1 Mapeia as posições dos blocos de dados nos arquivos disponíveis
-    if os.path.exists(consolidated_file):
-        print(f"Lendo base consolidada: {os.path.basename(consolidated_file)}")
-        pf = pq.ParquetFile(consolidated_file)
-        # Registra o arquivo consolidado e os índices de seus row groups
-        for i in range(pf.num_row_groups):
-            row_groups_info.append((consolidated_file, i))
+    if sample_size is None:
+        if os.path.exists(consolidated_file):
+            print(f"Lendo base consolidada completa: {os.path.basename(consolidated_file)}")
+            df_sample = pd.read_parquet(consolidated_file, columns=usecols)
+        else:
+            print("Base consolidada não encontrada. Lendo todos os arquivos fragmentados...")
+            files = sorted(glob.glob(os.path.join(folder_path, "train-*.parquet")))
+            if not files:
+                raise FileNotFoundError(f"Nenhum arquivo Parquet de treino encontrado em: {folder_path}")
+            dfs = [pd.read_parquet(f, columns=usecols) for f in files]
+            df_sample = pd.concat(dfs, ignore_index=True)
     else:
-        print("Base consolidada não encontrada. Buscando arquivos fragmentados...")
-        files = glob.glob(os.path.join(folder_path, "train-*.parquet"))
-        print(f"Encontrados {len(files)} arquivos parquet.")
-        for f in files:
-            pf = pq.ParquetFile(f)
-            # Registra cada arquivo fragmentado e seus respectivos row groups
-            for i in range(pf.num_row_groups):
-                row_groups_info.append((f, i))
-            
-    print(f"Total de row_groups disponíveis: {len(row_groups_info)}")
-    
-    # 1.2 Embaralha as referências dos row groups para garantir que a amostragem seja aleatória e imparcial (unbiased sample)
-    random.seed(42)
-    random.shuffle(row_groups_info)
-    
-    dfs = []
-    current_size = 0
-    
-    # 1.3 Lê sequencialmente apenas os blocos sorteados até alcançar o tamanho de amostra definido (sample_size)
-    for f, i in row_groups_info:
-        pf = pq.ParquetFile(f)
-        # Lê apenas as colunas projetadas ('usecols') do row group sorteado
-        df_part = pf.read_row_group(i, columns=usecols).to_pandas()
-        dfs.append(df_part)
-        current_size += len(df_part)
-        # Critério de parada rápido para evitar carregar blocos desnecessários
-        if current_size >= sample_size:
-            break
-            
-    # Concatena os pedaços em um DataFrame único
-    df_sample = pd.concat(dfs, ignore_index=True)
-    
-    # Ajusta para o tamanho exato solicitado caso a soma dos blocos passe ligeiramente de 'sample_size'
-    if len(df_sample) > sample_size:
-        df_sample = df_sample.sample(n=sample_size, random_state=42)
+        row_groups_info = []  # Lista para mapear onde cada bloco (row group) está
         
-    print(f"Tamanho da amostra extraída: {len(df_sample)}")
+        # 1.1 Mapeia as posições dos blocos de dados nos arquivos disponíveis
+        if os.path.exists(consolidated_file):
+            print(f"Lendo base consolidada: {os.path.basename(consolidated_file)}")
+            pf = pq.ParquetFile(consolidated_file)
+            for i in range(pf.num_row_groups):
+                row_groups_info.append((consolidated_file, i))
+        else:
+            print("Base consolidada não encontrada. Buscando arquivos fragmentados...")
+            files = glob.glob(os.path.join(folder_path, "train-*.parquet"))
+            print(f"Encontrados {len(files)} arquivos parquet.")
+            for f in files:
+                pf = pq.ParquetFile(f)
+                for i in range(pf.num_row_groups):
+                    row_groups_info.append((f, i))
+                
+        print(f"Total de row_groups disponíveis: {len(row_groups_info)}")
+        
+        random.seed(42)
+        random.shuffle(row_groups_info)
+        
+        dfs = []
+        current_size = 0
+        
+        for f, i in row_groups_info:
+            pf = pq.ParquetFile(f)
+            df_part = pf.read_row_group(i, columns=usecols).to_pandas()
+            dfs.append(df_part)
+            current_size += len(df_part)
+            if current_size >= sample_size:
+                break
+                
+        df_sample = pd.concat(dfs, ignore_index=True)
+        
+        if len(df_sample) > sample_size:
+            df_sample = df_sample.sample(n=sample_size, random_state=42)
+            
+    # Renomeia as colunas do inglês para o português na primeira etapa
+    df_sample = rename_columns(df_sample)
+        
+    print(f"Tamanho do dataset carregado: {len(df_sample)}")
     return df_sample
 
 def feature_engineering(df):
@@ -121,10 +170,10 @@ def feature_engineering(df):
     # 2.1 Extração de Informações Temporais (Temporal Feature Extraction)
     print("Extraindo features temporais...")
     # 'format=mixed' permite converter com sucesso mesmo que as strings de data tenham precisões de milissegundos variáveis
-    df['Start_Time'] = pd.to_datetime(df['Start_Time'], format='mixed')
-    df['Hora_do_Dia'] = df['Start_Time'].dt.hour
-    df['Dia_da_Semana'] = df['Start_Time'].dt.dayofweek
-    df['Mes'] = df['Start_Time'].dt.month
+    df['Tempo_Inicial'] = pd.to_datetime(df['Tempo_Inicial'], format='mixed')
+    df['Hora_do_Dia'] = df['Tempo_Inicial'].dt.hour
+    df['Dia_da_Semana'] = df['Tempo_Inicial'].dt.dayofweek
+    df['Mes'] = df['Tempo_Inicial'].dt.month
     
     # Cria flag binária identificando Horário de Pico (Rush Hour) - Manhã (7-9h) ou Tarde (16-18h)
     df['Horario_Pico'] = df['Hora_do_Dia'].apply(lambda x: 1 if (7 <= x <= 9) or (16 <= x <= 18) else 0)
@@ -134,14 +183,28 @@ def feature_engineering(df):
     # processando as coordenadas geográficas em sub-lotes (mini-batches) de forma extremamente rápida.
     print("Criando zonas de risco espaciais usando MiniBatchKMeans...")
     # Preenche valores geográficos faltantes temporariamente com a média para evitar erros de execução no K-Means
-    coords = df[['Start_Lat', 'Start_Lng']].fillna(df[['Start_Lat', 'Start_Lng']].mean())
+    coords = df[['Latitude_Inicial', 'Longitude_Inicial']].fillna(df[['Latitude_Inicial', 'Longitude_Inicial']].mean())
     # Cria 20 grupos (clusters) espaciais que representarão zonas com perfis geográficos similares
     kmeans = MiniBatchKMeans(n_clusters=20, random_state=42, batch_size=5000)
     df['Cluster_Espacial'] = kmeans.fit_predict(coords)
     
-    # Remove a coluna original de data/hora 'Start_Time' para otimizar o uso de RAM,
+    # Exibição da distribuição dos clusters e centróides (K-Means Division Report)
+    print("\n--- Relatório de Divisão dos Clusters Geográficos (K-Means) ---")
+    cluster_counts = df['Cluster_Espacial'].value_counts().sort_index()
+    centroids = kmeans.cluster_centers_
+    total_len = len(df)
+    
+    print(f"{'Cluster':<8} | {'Acidentes':<10} | {'Proporção (%)':<14} | {'Centróide (Lat, Lng)':<25}")
+    print("-" * 65)
+    for cluster_id, count in cluster_counts.items():
+        lat_c, lng_c = centroids[cluster_id]
+        pct = (count / total_len) * 100
+        print(f"{cluster_id:<8d} | {count:<10d} | {pct:<14.2f}% | Lat: {lat_c:7.4f}, Lng: {lng_c:7.4f}")
+    print("-" * 65)
+    
+    # Remove a coluna original de data/hora 'Tempo_Inicial' para otimizar o uso de RAM,
     # uma vez que já extraímos todas as informações numéricas relevantes dela.
-    df = df.drop(columns=['Start_Time'])
+    df = df.drop(columns=['Tempo_Inicial'])
     
     return df
 
@@ -162,9 +225,9 @@ def handle_missing_data(df):
     print(missing_pct[missing_pct > 0].sort_values(ascending=False))
     
     # Variáveis numéricas contínuas elegíveis para a imputação avançada por MICE
-    cont_cols = ['Temperature(F)', 'Wind_Chill(F)', 'Humidity(%)', 'Pressure(in)', 'Visibility(mi)', 'Wind_Speed(mph)', 'Precipitation(in)', 'Start_Lat', 'Start_Lng']
+    cont_cols = ['Temperatura_F', 'Sensacao_Termica_F', 'Umidade_Percentual', 'Pressao_Polegadas', 'Visibilidade_Milhas', 'Velocidade_Vento_Mph', 'Precipitacao_Polegadas', 'Latitude_Inicial', 'Longitude_Inicial']
     # Variáveis categóricas tratadas de forma simples por representatividade de classe
-    cat_cols = ['Sunrise_Sunset']
+    cat_cols = ['Nascer_Por_Sol']
     
     print("Iniciando MICE nas variáveis contínuas (isso pode levar alguns segundos)...")
     # IterativeImputer estima recursivamente cada feature contínua em função das demais.
@@ -195,7 +258,7 @@ def detect_outliers_hybrid(df):
     - df_clean (pd.DataFrame): Dataset livre dos outliers identificados em ambas as abordagens.
     """
     print("\n--- 4. Detecção de Outliers Híbrida (Mahalanobis + Isolation Forest) ---")
-    num_cols = ['Temperature(F)', 'Humidity(%)', 'Pressure(in)', 'Visibility(mi)', 'Wind_Speed(mph)']
+    num_cols = ['Temperatura_F', 'Umidade_Percentual', 'Pressao_Polegadas', 'Visibilidade_Milhas', 'Velocidade_Vento_Mph']
     
     # --- Etapa A: Distância de Mahalanobis (Linear Outlier Detection) ---
     print("Etapa A: Mahalanobis (Linear)...")
@@ -239,8 +302,8 @@ if __name__ == "__main__":
     # Caminho do diretório de dados
     folder = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset"
     
-    # 1. Executa a amostragem eficiente em memória (200.000 registros para EDA)
-    df = load_and_sample_data(folder, sample_size=200000)
+    # 1. Executa o carregamento da base inteira
+    df = load_and_sample_data(folder, sample_size=None)
     
     # 2. Executa a criação de variáveis temporais e espaciais
     df = feature_engineering(df)

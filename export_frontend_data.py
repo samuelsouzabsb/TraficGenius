@@ -26,14 +26,15 @@ def export_data():
     
     dataset_path = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset\dataset_amostra_limpa_avancado.parquet"
     
-    # Estrutura JSON inicial padrão (com valores mockados ou iniciais)
+    # Estrutura JSON inicial padrão (com valores reais e mockados para fallback)
     data = {
         "kpis": {
             "avg_visibility": 0.0,
-            "model_accuracy": 89.4  # Valor simulado da acurácia final consolidada pelo XGBoost/CNN
+            "max_severity": 4,
+            "accuracy": 0.707  # Acurácia de 70.7% obtida pelo XGBoost Tuned na base completa
         },
         "shap_data": {
-            "labels": ["Visibility(mi)", "Hora_do_Dia", "Temperature(F)", "Precipitation(in)", "Wind_Speed(mph)", "Humidity(%)"],
+            "labels": ["Visibilidade_Milhas", "Hora_do_Dia", "Temperatura_F", "Precipitacao_Polegadas", "Velocidade_Vento_Mph", "Umidade_Percentual"],
             "values": [2.8, 2.1, 1.5, 1.1, 0.8, 0.4]  # Média absoluta simulada dos valores SHAP (impacto das variáveis)
         },
         "time_data": {
@@ -48,16 +49,18 @@ def export_data():
     if os.path.exists(dataset_path):
         df = pd.read_parquet(dataset_path)
         
-        # 1.1 Calcula a média da variável de Visibilidade
-        data["kpis"]["avg_visibility"] = float(df['Visibility(mi)'].mean())
+        # 1.1 Calcula a média da variável de Visibilidade e KPIs associados
+        data["kpis"]["avg_visibility"] = float(df['Visibilidade_Milhas'].mean())
+        data["kpis"]["max_severity"] = int(df['Severidade'].max())
+        data["kpis"]["accuracy"] = 0.707
         
         # 1.2 Agrupa quantidade de acidentes por hora dividindo por gravidade:
         # Baixa Gravidade (Severidade 1 e 2) vs Alta Gravidade (Severidade 3 e 4)
         if 'Hora_do_Dia' in df.columns:
             for h in range(24):
                 hour_data = df[df['Hora_do_Dia'] == h]
-                low_sev = len(hour_data[hour_data['Severity'].isin([1, 2])])
-                high_sev = len(hour_data[hour_data['Severity'].isin([3, 4])])
+                low_sev = len(hour_data[hour_data['Severidade'].isin([1, 2])])
+                high_sev = len(hour_data[hour_data['Severidade'].isin([3, 4])])
                 
                 data["time_data"]["low_severity"].append(low_sev)
                 data["time_data"]["high_severity"].append(high_sev)
@@ -68,14 +71,14 @@ def export_data():
             
         # 1.3 Coleta uma amostra de 100 pontos geográficos para plotar no mapa Leaflet.
         # Amostra 50 acidentes graves e 50 acidentes leves de forma balanceada para evitar sobrecarga no render
-        df_severe = df[df['Severity'].isin([3, 4])].sample(min(50, len(df[df['Severity'].isin([3, 4])])))
-        df_low = df[df['Severity'].isin([1, 2])].sample(min(50, len(df[df['Severity'].isin([1, 2])])))
+        df_severe = df[df['Severidade'].isin([3, 4])].sample(min(50, len(df[df['Severidade'].isin([3, 4])])))
+        df_low = df[df['Severidade'].isin([1, 2])].sample(min(50, len(df[df['Severidade'].isin([1, 2])])))
         
         for _, row in pd.concat([df_severe, df_low]).iterrows():
             data["map_clusters"].append({
-                "lat": float(row['Start_Lat']),
-                "lng": float(row['Start_Lng']),
-                "severity": int(row['Severity'])
+                "lat": float(row['Latitude_Inicial']),
+                "lng": float(row['Longitude_Inicial']),
+                "severity": int(row['Severidade'])
             })
     else:
         # 2. Caminho de Fallback caso o pipeline anterior não tenha sido executado
