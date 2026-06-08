@@ -47,7 +47,7 @@ graph TD
 O processamento e modelagem são divididos em fases lógicas independentes que garantem a escalabilidade do sistema:
 
 ### Fase 1: Análise Exploratória (EDA), Engenharia de Recursos e Higienização
-*Arquivo correspondente: [pipeline_fase1_eda.py](file:///C:/Users/samuelbarroso/Documents/Desenvolvimento/TraficGenius/pipeline_fase1_eda.py)*
+*Arquivo correspondente: [pipeline_fase1_eda.py](pipeline_fase1_eda.py)*
 
 1. **Leitura Otimizada de Memória (Memory-Efficient Reading):** Utiliza projeção de colunas para carregar do disco apenas os atributos necessários. O carregamento é baseado em blocos (*row groups*) usando PyArrow, permitindo ler milhões de linhas de arquivos Parquet comprimidos com Snappy em máquinas locais sem estourar a memória RAM (Out-of-Memory).
 2. **Renomeação de Colunas para Português:** Traduz as 25 colunas originais do inglês para português do Brasil (`COLUMNS_MAPPING`) imediatamente após a leitura para melhorar a legibilidade e manutenabilidade do projeto.
@@ -59,13 +59,13 @@ O processamento e modelagem são divididos em fases lógicas independentes que g
    - *Não-Linear (Isolation Forest):* Técnica de aprendizado de máquina isolando dados discrepantes em árvores de decisão.
 
 ### Fase 2: Testes de Premissas e Multicolinearidade
-*Arquivo correspondente: [pipeline_fase2_premissas.py](file:///C:/Users/samuelbarroso/Documents/Desenvolvimento/TraficGenius/pipeline_fase2_premissas.py)*
+*Arquivo correspondente: [pipeline_fase2_premissas.py](pipeline_fase2_premissas.py)*
 
 1. **Testes de Normalidade e Homocedasticidade:** Realiza os testes estatísticos de Shapiro-Wilk, Kolmogorov-Smirnov e Levene para avaliar o comportamento de dispersão e homogeneidade de variâncias dos atributos contínuos em relação à severidade do acidente.
 2. **Redução por VIF (Variance Inflation Factor):** Executa uma filtragem iterativa (*stepwise reduction*) que calcula a multicolinearidade das variáveis numéricas contínuas. Qualquer variável com VIF superior a 10 é descartada (exemplo: a temperatura foi eliminada por colinearidade extrema com a sensação térmica), restando apenas um conjunto linearmente estável de preditores.
 
 ### Fase 3 a 5: Balanceamento, Otimização e Treinamento de Modelos
-*Arquivo correspondente: [pipeline_fase3a5_modelagem.py](file:///C:/Users/samuelbarroso/Documents/Desenvolvimento/TraficGenius/pipeline_fase3a5_modelagem.py)*
+*Arquivo correspondente: [pipeline_fase3a5_modelagem.py](pipeline_fase3a5_modelagem.py)*
 
 1. **Balanceamento Sintético (SMOTE):** Devido ao forte desbalanceamento de classes inerente a bases de trânsito (muito mais colisões leves do que acidentes graves/fatais), o pipeline aplica a técnica de superamostragem minoritária sintética no conjunto de treinamento para igualar a representatividade das classes.
 2. **Modelagem Preditiva XGBoost (Tuned):** Instancia e executa uma otimização por busca aleatória (**RandomizedSearchCV**) controlando a profundidade das árvores, número de estimadores e taxa de aprendizado.
@@ -77,7 +77,7 @@ O processamento e modelagem são divididos em fases lógicas independentes que g
 
 ## 📊 4. Painel de Controle e Visualização (Frontend Dashboard)
 
-O painel é estruturado em uma página moderna com design de vidro fosco (*glassmorphism*), tema escuro e efeitos cibernéticos brilhantes, dividido nos seguintes arquivos em [frontend/](file:///C:/Users/samuelbarroso/Documents/Desenvolvimento/TraficGenius/frontend):
+O painel é estruturado em uma página moderna com design de vidro fosco (*glassmorphism*), tema escuro e efeitos cibernéticos brilhantes, dividido nos seguintes arquivos em [frontend/](frontend/):
 
 * **`index.html` & `styles.css`:** Criam o layout responsivo em grid com barra lateral de controle, cartões de KPIs rápidos e painéis de gráficos integrados. Possui um selecionador dinâmico de cores de neon (Color Picker) no cabeçalho.
 * **`network-bg.js`:** Executa um fundo cibernético dinâmico no elemento `<canvas>` que desenha nós conectados por distância euclidiana, com aceleração e colisão elástica de partículas que se movem de forma suave.

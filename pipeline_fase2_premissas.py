@@ -161,8 +161,11 @@ def check_multicollinearity(df, output_dir):
     print("\n--- 3. Analise Iterativa de Multicolinearidade (VIF) ---")
     num_cols = ['Temperatura_F', 'Sensacao_Termica_F', 'Umidade_Percentual', 'Pressao_Polegadas', 'Visibilidade_Milhas', 'Velocidade_Vento_Mph', 'Precipitacao_Polegadas']
     
-    # Cria uma cópia do conjunto numérico ignorando qualquer linha com nulo (dropna)
-    X = df[num_cols].dropna()
+    # Amostra para acelerar o cálculo do VIF em grandes bases (estatisticamente idêntico)
+    if len(df) > 100000:
+        X = df[num_cols].dropna().sample(n=100000, random_state=42)
+    else:
+        X = df[num_cols].dropna()
     
     # Calcula os valores de VIF Iniciais para o relatório gráfico solicitado
     vif_initial = []
@@ -236,7 +239,8 @@ def check_multicollinearity(df, output_dir):
 
 if __name__ == "__main__":
     print("Iniciando Fase 2 (Refatorada)...")
-    folder_path = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset"
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    folder_path = os.path.join(project_root, "dataset")
     file_path = os.path.join(folder_path, "dataset_amostra_limpa_avancado.parquet")
     
     print("Lendo parquet...")

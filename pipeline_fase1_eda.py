@@ -210,87 +210,57 @@ def feature_engineering(df):
 
 def handle_missing_data(df):
     """
-    Trata dados ausentes (missing values) usando imputação múltipla baseada em regressões lineares
-    (MICE - Multivariate Imputation by Chained Equations) e imputação categórica pela moda.
-    
-    Parâmetros (Parameters):
-    - df (pd.DataFrame): Dataset com presença de valores nulos.
-    
-    Retorno (Returns):
-    - df (pd.DataFrame): Dataset tratado com dados completamente preenchidos.
+    Trata dados ausentes (missing values) usando preenchimento rápido por mediana
+    (para variáveis contínuas) e moda (para variáveis categóricas).
+    Otimizado para grandes volumes de dados (7 milhões de registros).
     """
-    print("\n--- 3. Tratamento Avançado de Dados Ausentes (Iterative Imputer / MICE) ---")
+    print("\n--- 3. Tratamento Rápido de Dados Ausentes (Mediana e Moda) ---")
     missing_pct = df.isnull().mean() * 100
     print("Percentual de dados ausentes por coluna (>0%):")
     print(missing_pct[missing_pct > 0].sort_values(ascending=False))
     
-    # Variáveis numéricas contínuas elegíveis para a imputação avançada por MICE
     cont_cols = ['Temperatura_F', 'Sensacao_Termica_F', 'Umidade_Percentual', 'Pressao_Polegadas', 'Visibilidade_Milhas', 'Velocidade_Vento_Mph', 'Precipitacao_Polegadas', 'Latitude_Inicial', 'Longitude_Inicial']
-    # Variáveis categóricas tratadas de forma simples por representatividade de classe
     cat_cols = ['Nascer_Por_Sol']
     
-    print("Iniciando MICE nas variáveis contínuas (isso pode levar alguns segundos)...")
-    # IterativeImputer estima recursivamente cada feature contínua em função das demais.
-    # Configuramos um limite de 3 iterações (max_iter=3) e dependência de 4 atributos mais próximos
-    # (n_nearest_features=4) para manter um equilíbrio ideal entre velocidade e precisão.
-    imputer = IterativeImputer(max_iter=3, random_state=42, n_nearest_features=4)
-    df[cont_cols] = imputer.fit_transform(df[cont_cols])
+    print("Preenchendo valores ausentes das variáveis contínuas com a mediana...")
+    for col in cont_cols:
+        if df[col].isnull().sum() > 0:
+            median_val = df[col].median()
+            df[col] = df[col].fillna(median_val)
             
-    # Imputação de Variáveis Categóricas usando a Moda (valor mais comum/frequente)
+    print("Preenchendo valores ausentes das variáveis categóricas com a moda...")
     for col in cat_cols:
         if df[col].isnull().sum() > 0:
-            df[col] = df[col].fillna(df[col].mode()[0])
+            mode_val = df[col].mode()[0]
+            df[col] = df[col].fillna(mode_val)
             
     print("Valores ausentes após imputação:", df.isnull().sum().sum())
     return df
 
 def detect_outliers_hybrid(df):
     """
-    Identifica e remove valores discrepantes (outliers) no espaço multivariado
-    utilizando uma abordagem híbrida de filtragem:
-    1. Distância de Mahalanobis: Abordagem paramétrica linear que considera a covariância dos dados.
-    2. Isolation Forest: Abordagem não-linear de aprendizado de máquina baseada em árvores de decisão.
-    
-    Parâmetros (Parameters):
-    - df (pd.DataFrame): Dataset original.
-    
-    Retorno (Returns):
-    - df_clean (pd.DataFrame): Dataset livre dos outliers identificados em ambas as abordagens.
+    Identifica e remove valores discrepantes (outliers) utilizando a Distância de Mahalanobis.
+    Abordagem paramétrica linear que considera a covariância dos dados e é ultra-rápida.
     """
-    print("\n--- 4. Detecção de Outliers Híbrida (Mahalanobis + Isolation Forest) ---")
+    print("\n--- 4. Detecção de Outliers Rápida (Distância de Mahalanobis) ---")
     num_cols = ['Temperatura_F', 'Umidade_Percentual', 'Pressao_Polegadas', 'Visibilidade_Milhas', 'Velocidade_Vento_Mph']
     
-    # --- Etapa A: Distância de Mahalanobis (Linear Outlier Detection) ---
-    print("Etapa A: Mahalanobis (Linear)...")
     x = df[num_cols].to_numpy()
     cov_matrix = np.cov(x, rowvar=False)  # Matriz de covariância
     inv_cov_matrix = np.linalg.inv(cov_matrix)  # Inversa da matriz de covariância
     mean_val = np.mean(x, axis=0)  # Vetor de médias
     diff = x - mean_val
-    # Multiplicação matricial acelerada (Einstein summation convention) para obter a distância de Mahalanobis ao quadrado
+    
+    # Multiplicação matricial acelerada (Einstein summation)
     md = np.einsum('ij,jk,ik->i', diff, inv_cov_matrix, diff)
     
-    # Compara a distância quadrada de Mahalanobis com o limite crítico da distribuição Qui-Quadrado (chi2)
+    # Compara a distância quadrada de Mahalanobis com o limite crítico de chi2 (p < 0.001)
     df['P_Value'] = 1 - chi2.cdf(md, len(num_cols))
-    # Registra índices cujo p-valor seja menor que 0.001 (significância alta de outlier)
-    outliers_mah = df[df['P_Value'] < 0.001].index
-    print(f"Detectados por Mahalanobis: {len(outliers_mah)}")
+    outliers = df[df['P_Value'] < 0.001].index
+    print(f"Detectados por Mahalanobis: {len(outliers)}")
     
-    # --- Etapa B: Isolation Forest (Non-Linear Outlier Detection) ---
-    print("Etapa B: Isolation Forest (Não-Linear)...")
-    # Instancia a floresta com contaminação fixada em 1% (contamination=0.01) e utilizando todos os núcleos de CPU (n_jobs=-1)
-    iso = IsolationForest(contamination=0.01, random_state=42, n_jobs=-1)
-    preds = iso.fit_predict(df[num_cols])
-    # Os outliers são representados pelo valor predito de -1
-    outliers_iso = df.index[preds == -1]
-    print(f"Detectados por Isolation Forest: {len(outliers_iso)}")
-    
-    # União lógica dos outliers (remove pontos identificados por qualquer uma das duas técnicas)
-    all_outliers = list(set(outliers_mah).union(set(outliers_iso)))
-    print(f"Total combinado de Outliers a remover: {len(all_outliers)}")
-    
-    # Remove as linhas discrepantes do DataFrame e gera uma cópia em memória
-    df_clean = df.drop(index=all_outliers).copy()
+    # Remove as linhas discrepantes
+    df_clean = df.drop(index=outliers).copy()
     if 'P_Value' in df_clean.columns:
         df_clean = df_clean.drop(columns=['P_Value'])
         
@@ -299,8 +269,9 @@ def detect_outliers_hybrid(df):
     return df_clean
 
 if __name__ == "__main__":
-    # Caminho do diretório de dados
-    folder = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset"
+    # Caminho do diretório de dados relativos ao arquivo atual
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    folder = os.path.join(project_root, "dataset")
     
     # 1. Executa o carregamento da base inteira
     df = load_and_sample_data(folder, sample_size=None)

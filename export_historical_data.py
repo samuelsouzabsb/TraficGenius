@@ -26,7 +26,8 @@ def export_historical_data():
     """
     print("Exportando dados historicos para o Frontend (V3)...")
     
-    dataset_path = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset\dataset_amostra_limpa_avancado.parquet"
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    dataset_path = os.path.join(project_root, "dataset", "dataset_amostra_limpa_avancado.parquet")
     
     # Estrutura inicial contendo os dados mockados/fallback e formatos de chaves esperados
     data = {
@@ -101,7 +102,7 @@ def export_historical_data():
         data["distance_hist"]["values"] = [12000, 5000, 1500, 500]
 
     # Cria o subdiretório de histórico na pasta do frontend se ainda não existir
-    history_dir = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\frontend\history"
+    history_dir = os.path.join(project_root, "frontend", "history")
     os.makedirs(history_dir, exist_ok=True)
     
     out_file = os.path.join(history_dir, 'historical_data.json')

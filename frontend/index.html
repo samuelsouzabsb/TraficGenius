@@ -21,7 +21,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     
     <!-- Biblioteca Leaflet CSS: Estilos e layouts padrão para renderização do mapa geográfico -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="libs/leaflet.css"/>
     
     <!-- Folha de estilo personalizada (Custom CSS stylesheet) contendo as variáveis neon e o design glassmorphism -->
     <link rel="stylesheet" href="styles.css">
@@ -49,17 +49,17 @@
             
             <!-- Menu de Navegação Horizontal (Main Navigation links) -->
             <nav class="header-nav">
-                <a href="#" class="nav-link">
+                <a href="index.html" class="nav-link">
                     <!-- SVG Inline representando um grid quadrangular (Dashboard Icon) -->
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                     Dashboard
                 </a>
-                <a href="#" class="nav-link active">
+                <a href="index.html" class="nav-link active">
                     <!-- SVG representando um triângulo de sinalização de incidentes rodoviários (Incidents Icon) -->
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     Incidents
                 </a>
-                <a href="#" class="nav-link">
+                <a href="modelos.html" class="nav-link">
                     <!-- SVG representando ondas/pulsos de machine learning (Models Icon) -->
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
                     Models
@@ -115,6 +115,9 @@
                                     <div class="value orange" id="kpi-avg-severity">3.8/5</div>
                                 </div>
                             </div>
+                            <button id="btn-back-macro" class="tool-btn" style="display: none; margin-top: 10px; width: 100%; pointer-events: auto; justify-content: center; font-family: var(--font-head); font-weight: 600; color: #FFF; background: rgba(0, 229, 255, 0.15); border: 1px solid var(--neon-cyan);">
+                                Voltar para Visão Macro
+                            </button>
                         </div>
                         
                         <!-- Legenda de cores dos marcadores hexagonais (Color scale legend) -->
@@ -173,6 +176,26 @@
                             <svg class="icon-right" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"></polyline></svg>
                         </div>
                     </div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label">Selecionar da Região (ID)</label>
+                        <div class="filter-input-wrapper">
+                            <select class="filter-input no-icon" id="select-accident-id">
+                                <option value="">Selecione pelo ID...</option>
+                            </select>
+                            <svg class="icon-right" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label">Buscar Acidente (ID Global)</label>
+                        <div class="filter-input-wrapper" style="display: flex; gap: 8px;">
+                            <input type="text" class="filter-input" id="input-search-id" placeholder="Digite o ID..." style="padding-left: 12px; pointer-events: auto; flex-grow: 1;">
+                            <button id="btn-search-id" class="tool-btn" style="pointer-events: auto; background: var(--neon-cyan); color: #000; border: none; font-weight: bold; border-radius: 8px; padding: 10px 14px; font-family: var(--font-head); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; min-height: 40px;">
+                                OK
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Painel de Clima em Tempo Real (Weather Card HUD) -->
@@ -187,14 +210,14 @@
                             <!-- Ícone de Nuvem em SVG -->
                             <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
                             <div class="weather-temp-info">
-                                <div class="temp">16°C</div>
-                                <div class="condition">Cloudy</div>
+                                <div class="temp" id="weather-temp">16°C</div>
+                                <div class="condition" id="weather-condition">Cloudy</div>
                             </div>
                         </div>
                         <div class="weather-details">
-                            <div>Humidty</div>
-                            <div>Humidity <span class="white">78%</span></div>
-                            <div>Wind <span class="white">14 km/h</span></div>
+                            <div>Humidity</div>
+                            <div>Humidity <span class="white" id="weather-humidity">78%</span></div>
+                            <div>Wind <span class="white" id="weather-wind">14 km/h</span></div>
                         </div>
                     </div>
 
@@ -222,6 +245,43 @@
                             <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"></path><path d="M13 14l-4 5h6l-4 5"></path></svg>
                             <span>Storm</span>
                             <span>temp</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Painel de Detalhes do Acidente Selecionado (Dynamic Accident Details & Model Predictions) -->
+                <div class="selected-accident-card glass-panel" id="selected-accident-card" style="display: none; margin-bottom: 1.5rem; padding: 20px;">
+                    <h3 style="font-family: var(--font-head); color: var(--neon-cyan); margin-bottom: 5px; font-size: 1.1rem; letter-spacing: 1px;">SELECTED ACCIDENT DETAILS</h3>
+                    <p class="subtitle" id="selected-accident-title" style="margin-bottom: 12px; font-size: 0.8rem; color: rgba(255,255,255,0.5);">ID: --</p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem; margin-bottom: 15px; color: rgba(255,255,255,0.7);">
+                        <div>Distância: <span class="white" id="detail-dist" style="font-weight: bold; color: #FFF;">-- mi</span></div>
+                        <div>Horário Pico: <span class="white" id="detail-rush" style="font-weight: bold; color: #FFF;">--</span></div>
+                        <div>Cruzamento: <span class="white" id="detail-crossing" style="font-weight: bold; color: #FFF;">--</span></div>
+                        <div>Semáforo: <span class="white" id="detail-signal" style="font-weight: bold; color: #FFF;">--</span></div>
+                        <div>Junção: <span class="white" id="detail-junction" style="font-weight: bold; color: #FFF;">--</span></div>
+                        <div>Estação: <span class="white" id="detail-station" style="font-weight: bold; color: #FFF;">--</span></div>
+                    </div>
+                    
+                    <div class="weather-divider" style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.08);"></div>
+                    
+                    <h4 style="font-family: var(--font-head); color: #FFF; font-size: 0.9rem; margin-bottom: 8px; letter-spacing: 0.5px;">PREDICTIONS BY MODEL</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="overlay-kpi-box" style="padding: 8px; border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 6px; background: rgba(0,229,255,0.02); pointer-events: none;">
+                            <div class="label" style="font-size: 0.65rem; color: rgba(255,255,255,0.5);">XGBoost (Primary)</div>
+                            <div class="value cyan" id="pred-xgb" style="font-size: 1.05rem; font-weight: bold; color: var(--neon-cyan);">--</div>
+                        </div>
+                        <div class="overlay-kpi-box" style="padding: 8px; border: 1px solid rgba(255, 42, 85, 0.2); border-radius: 6px; background: rgba(255,42,85,0.02); pointer-events: none;">
+                            <div class="label" style="font-size: 0.65rem; color: rgba(255,255,255,0.5);">CNN 1D (Deep)</div>
+                            <div class="value critical" id="pred-cnn" style="font-size: 1.05rem; font-weight: bold; color: #FF2A55;">--</div>
+                        </div>
+                        <div class="overlay-kpi-box" style="padding: 8px; border: 1px solid rgba(255, 138, 0, 0.2); border-radius: 6px; background: rgba(255,138,0,0.02); pointer-events: none;">
+                            <div class="label" style="font-size: 0.65rem; color: rgba(255,255,255,0.5);">Random Forest</div>
+                            <div class="value orange" id="pred-rf" style="font-size: 1.05rem; font-weight: bold; color: #FF8A00;">--</div>
+                        </div>
+                        <div class="overlay-kpi-box" style="padding: 8px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; background: rgba(255,255,255,0.02); pointer-events: none;">
+                            <div class="label" style="font-size: 0.65rem; color: rgba(255,255,255,0.5);">Reg. Logística</div>
+                            <div class="value white" id="pred-lr" style="font-size: 1.05rem; font-weight: bold; color: #FFF;">--</div>
                         </div>
                     </div>
                 </div>
@@ -287,9 +347,9 @@
       2. Chart.js: Renderização dos eixos, grades e traçados dos gráficos.
       3. Chart.js Datalabels Plugin: Permite exibir os valores absolutos sobre as colunas do gráfico.
     -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="libs/leaflet.js"></script>
+    <script src="libs/chart.js"></script>
+    <script src="libs/chartjs-plugin-datalabels.js"></script>
     
     <!-- Scripts de controle locais do projeto -->
     <script src="network-bg.js"></script>

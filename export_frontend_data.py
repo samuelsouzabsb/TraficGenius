@@ -24,7 +24,8 @@ def export_data():
     """
     print("Exportando dados estáticos para o Frontend...")
     
-    dataset_path = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\dataset\dataset_amostra_limpa_avancado.parquet"
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    dataset_path = os.path.join(project_root, "dataset", "dataset_amostra_limpa_avancado.parquet")
     
     # Estrutura JSON inicial padrão (com valores reais e mockados para fallback)
     data = {
@@ -88,7 +89,7 @@ def export_data():
         data["time_data"]["high_severity"] = [np.random.randint(10, 100) for _ in range(24)]
         
     # Define o diretório de saída na pasta do frontend
-    frontend_dir = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius\frontend"
+    frontend_dir = os.path.join(project_root, "frontend")
     os.makedirs(frontend_dir, exist_ok=True)
     
     out_file = os.path.join(frontend_dir, 'dashboard_data.json')

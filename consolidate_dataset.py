@@ -91,8 +91,8 @@ def consolidate_parquet_files(input_dir, output_file):
     return total_rows
 
 if __name__ == "__main__":
-    # Caminho do projeto no ambiente local do usuário
-    project_root = r"c:\Users\samuelbarroso\Documents\Desenvolvimento\TraficGenius"
+    # Caminho do projeto dinamicamente resolvido
+    project_root = os.path.dirname(os.path.abspath(__file__))
     dataset_dir = os.path.join(project_root, "dataset")
     output_parquet = os.path.join(dataset_dir, "dataset_consolidado.parquet")
     

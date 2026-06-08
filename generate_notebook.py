@@ -52,7 +52,8 @@ sns.set_theme(style="whitegrid")"""))
     
     # 4. Célula de Código: Carregamento do dataset final processado na Fase 1
     nb.cells.append(nbf.v4.new_code_cell("""# Vamos explorar visualmente o resultado da amostragem limpa
-folder_path = r"c:/Users/samuelbarroso/Documents/Desenvolvimento/TraficGenius/dataset"
+project_root = os.getcwd()
+folder_path = os.path.join(project_root, "dataset")
 file_path = os.path.join(folder_path, "dataset_amostra_limpa_avancado.parquet")
 
 df = pd.read_parquet(file_path)

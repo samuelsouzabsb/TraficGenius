@@ -49,11 +49,13 @@ function initMap() {
 
 /**
  * Limpa marcadores anteriores e desenha os hexágonos brilhantes dinâmicos.
+ * Suporta modo Macro (centroids regionais) e modo Micro (acidentes individuais).
  * 
  * Parâmetros (Parameters):
- * - clusters (array): Vetor de objetos contendo latitude, longitude e severidade de cada ponto.
+ * - points (array): Vetor contendo os pontos a plotar.
+ * - isMacro (boolean): True se estiver plotando os centroids dos clusters, false se acidentes individuais.
  */
-function plotClusters(clusters) {
+function plotClusters(points, isMacro = true) {
     // Garante que o mapa esteja inicializado antes de plotar os pontos
     if (!myMap) initMap();
     
@@ -64,11 +66,33 @@ function plotClusters(clusters) {
         }
     });
 
-    // Loop para desenhar cada ponto de acidente
-    clusters.forEach(cluster => {
+    // Popula o seletor dropdown no painel somente em modo micro (isMacro = false)
+    const selectAccident = document.getElementById('select-accident-id');
+    if (selectAccident) {
+        if (!isMacro) {
+            selectAccident.innerHTML = '<option value="">Selecione pelo ID...</option>';
+            points.forEach(point => {
+                const opt = document.createElement('option');
+                opt.value = point.id;
+                opt.textContent = `ID #${point.id} (Severidade G${point.Severidade})`;
+                selectAccident.appendChild(opt);
+            });
+        }
+    }
+
+    // Loop para desenhar cada ponto
+    points.forEach(point => {
+        // Normaliza campos dependendo se é macro (centróide) ou micro (acidente individual)
+        const lat = isMacro ? point.lat : point.Latitude_Inicial;
+        const lng = isMacro ? point.lng : point.Longitude_Inicial;
+        const severity = isMacro ? point.severity : point.Severidade;
+        const cluster_id = isMacro ? point.cluster_id : point.Cluster_Espacial;
+        const accident_id = isMacro ? null : point.id;
+
         // Obtém a cor neon ativa configurada no CSS dinamicamente usando getComputedStyle
         const mainColor = getComputedStyle(document.documentElement).getPropertyValue('--neon-cyan').trim() || '#00e5ff';
-        const isHighSeverity = cluster.severity > 3;  // Flag para acidentes críticos
+        const roundedSeverity = Math.round(severity) || 1;
+        const isHighSeverity = roundedSeverity > 3;  // Flag para acidentes críticos
 
         // Código SVG Inline personalizado: desenha um hexágono externo brilhante com o tema de cor ativo,
         // um hexágono interno de calor (Vermelho/Rosa para grave, Laranja para moderado) e um ponto branco central.
@@ -76,7 +100,7 @@ function plotClusters(clusters) {
         const svgIcon = `
         <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
             <defs>
-                <filter id="glow-${cluster.severity}">
+                <filter id="glow-${roundedSeverity}">
                     <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
                     <feMerge>
                         <feMergeNode in="coloredBlur"/>
@@ -85,16 +109,16 @@ function plotClusters(clusters) {
                 </filter>
             </defs>
             <!-- Hexágono Externo (Neon Theme Color) -->
-            <polygon points="50,5 90,25 90,75 50,95 10,75 10,25" fill="${mainColor}25" stroke="${mainColor}" stroke-width="1.5" filter="url(#glow-${cluster.severity})"/>
+            <polygon points="50,5 90,25 90,75 50,95 10,75 10,25" fill="${mainColor}25" stroke="${mainColor}" stroke-width="1.5" filter="url(#glow-${roundedSeverity})"/>
             <!-- Hexágono Interno de Risco (Vermelho ou Laranja) -->
-            <polygon points="50,25 75,40 75,60 50,75 25,60 25,40" fill="${isHighSeverity ? 'rgba(255, 42, 85, 0.5)' : 'rgba(255, 138, 0, 0.5)'}" stroke="${isHighSeverity ? '#FF2A55' : '#FF8A00'}" stroke-width="2" filter="url(#glow-${cluster.severity})"/>
+            <polygon points="50,25 75,40 75,60 50,75 25,60 25,40" fill="${isHighSeverity ? 'rgba(255, 42, 85, 0.5)' : 'rgba(255, 138, 0, 0.5)'}" stroke="${isHighSeverity ? '#FF2A55' : '#FF8A00'}" stroke-width="2" filter="url(#glow-${roundedSeverity})"/>
             <!-- Ponto Centralizador -->
             <circle cx="50" cy="50" r="6" fill="#FFF" />
         </svg>
         `;
 
         // Define a dimensão física do hexágono no mapa: maior para gravidade crítica
-        const size = cluster.severity > 3 ? 80 : 60;
+        const size = isHighSeverity ? 80 : 60;
 
         // Converte o código SVG bruto em um ícone HTML reconhecido pelo Leaflet (DivIcon)
         const icon = L.divIcon({
@@ -104,14 +128,78 @@ function plotClusters(clusters) {
             iconAnchor: [size/2, size/2] // Centraliza a ancoragem no meio do SVG
         });
 
-        // Instancia o marcador geográfico, adiciona ao mapa e configura o balão pop-up de detalhes
-        L.marker([cluster.lat, cluster.lng], { icon: icon }).addTo(myMap)
-            .bindPopup(`
-                <div style="background: #05050A; padding: 10px; border-radius: 6px; border: 1px solid #FF2A55; color: #FFF;">
-                    <b>Severity Level:</b> <span style="color: #FF2A55; font-weight: bold; font-size: 1.2rem;">${cluster.severity}</span>
+        // Instancia o marcador geográfico, adiciona ao mapa
+        const marker = L.marker([lat, lng], { icon: icon }).addTo(myMap);
+
+        // Configuração diferenciada do popup e eventos de clique para macro e micro
+        if (isMacro) {
+            const displaySeverity = typeof severity === 'number' ? severity.toFixed(2) : severity;
+            marker.bindPopup(`
+                <div style="background: #05050A; padding: 10px; border-radius: 6px; border: 1px solid var(--neon-cyan); color: #FFF; font-family: 'Inter', sans-serif;">
+                    <b style="color: var(--neon-cyan); font-size: 1.05rem;">Região Cluster ${cluster_id}</b><br/>
+                    <div style="margin-top: 5px;">Média Severidade: <span style="color: #FF8A00; font-weight: bold;">${displaySeverity}</span></div>
+                    <div style="margin-top: 5px; font-size: 0.8rem; color: rgba(255,255,255,0.6);">Clique no marcador para explorar os acidentes desta região</div>
                 </div>
             `, {
                 className: 'custom-dark-popup'
             });
+
+            // Clique no cluster -> Zoom e carrega os 100 pontos daquele cluster
+            marker.on('click', async () => {
+                myMap.setView([lat, lng], 11);
+                
+                // Exibe o botão de voltar
+                const backBtn = document.getElementById('btn-back-macro');
+                if (backBtn) backBtn.style.display = 'flex';
+                
+                const titleEl = document.querySelector('.overlay-title');
+                const subtitleEl = document.querySelector('.overlay-subtitle');
+                if (titleEl) titleEl.textContent = `CLUSTER ${cluster_id} DETAILS`;
+                if (subtitleEl) subtitleEl.textContent = `Visualizando acidentes individuais no Cluster ${cluster_id}`;
+
+                try {
+                    // Carrega acidentes deste cluster via API
+                    const res = await fetch(`http://127.0.0.1:8000/api/acidentes/?limit=100&cluster_id=${cluster_id}`);
+                    if (!res.ok) throw new Error("Falha ao buscar acidentes");
+                    const data = await res.json();
+                    
+                    // Plota como micro (isMacro = false)
+                    plotClusters(data.results, false);
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+        } else {
+            // Detalhes de acidente individual
+            marker.bindPopup(`
+                <div style="background: #05050A; padding: 10px; border-radius: 6px; border: 1px solid #FF2A55; color: #FFF; font-family: 'Inter', sans-serif;">
+                    <b style="color: #FF2A55; font-size: 1.05rem;">Acidente #${accident_id}</b><br/>
+                    <div style="margin-top: 5px;">Severidade: <span style="color: #FF2A55; font-weight: bold;">${severity}</span></div>
+                    <div style="margin-top: 5px; font-size: 0.8rem; color: rgba(255,255,255,0.6);">Clique para carregar SHAP e detalhes do clima</div>
+                </div>
+            `, {
+                className: 'custom-dark-popup'
+            });
+
+            // Clique no acidente individual -> Carrega explicabilidade local SHAP, clima e predições
+            marker.on('click', async () => {
+                try {
+                    let detail;
+                    if (accident_id >= 9990) {
+                        detail = window.defaultAccidentsData.find(d => d.id == accident_id);
+                    } else {
+                        const res = await fetch(`http://127.0.0.1:8000/api/acidentes/${accident_id}/`);
+                        if (!res.ok) throw new Error("Falha ao buscar detalhes do acidente");
+                        detail = await res.json();
+                    }
+
+                    if (detail && typeof window.updateSelectedAccidentDetails === 'function') {
+                        window.updateSelectedAccidentDetails(detail);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+        }
     });
 }
