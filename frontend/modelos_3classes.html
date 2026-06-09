@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TraficGenius 3Classes | Model Overview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="libs/leaflet.css"/>
+    <link rel="stylesheet" href="styles.css">
+    
+    <style>
+        .models-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            margin-top: 1.5rem;
+        }
+        @media (min-width: 1024px) {
+            .models-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .model-card {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+        .model-card:hover {
+            transform: translateY(-5px);
+        }
+        .model-card.xgb { border-color: var(--neon-cyan); box-shadow: 0 0 15px rgba(0, 229, 255, 0.1); }
+        .model-card.cnn { border-color: #FF2A55; box-shadow: 0 0 15px rgba(255, 42, 85, 0.1); }
+        .model-card.rf { border-color: #FF8A00; box-shadow: 0 0 15px rgba(255, 138, 0, 0.1); }
+        .model-card.lr { border-color: #FFF; box-shadow: 0 0 15px rgba(255, 255, 255, 0.05); }
+
+        .model-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .model-title {
+            font-family: var(--font-head);
+            font-size: 1.3rem;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .model-badge {
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .xgb .model-badge { background: rgba(0, 229, 255, 0.15); color: var(--neon-cyan); border: 1px solid var(--neon-cyan); }
+        .cnn .model-badge { background: rgba(255, 42, 85, 0.15); color: #FF2A55; border: 1px solid #FF2A55; }
+        .rf .model-badge { background: rgba(255, 138, 0, 0.15); color: #FF8A00; border: 1px solid #FF8A00; }
+        .lr .model-badge { background: rgba(255, 255, 255, 0.1); color: #FFF; border: 1px solid rgba(255,255,255,0.2); }
+
+        .model-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .metric-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .metric-val {
+            font-family: var(--font-head);
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .xgb .metric-val { color: var(--neon-cyan); }
+        .cnn .metric-val { color: #FF2A55; }
+        .rf .metric-val { color: #FF8A00; }
+        .lr .metric-val { color: #FFF; }
+        
+        .metric-lbl {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .model-diagram {
+            height: 120px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0;
+            padding: 10px;
+        }
+
+        .model-description {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .comparison-section {
+            margin-bottom: 2rem;
+        }
+        .comparison-chart-container {
+            height: 280px;
+            position: relative;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="network-bg"></canvas>
+
+    <div class="app-hud-overlay">
+        <!-- Cabeçalho Principal -->
+        <header class="hud-header glass-panel">
+            <div class="header-left">
+                <div class="logo">
+                    <img src="nova_logo.png" alt="TraficGenius Logo" class="logo-icon-img" onerror="this.onerror=null; this.src='https://cdn-icons-png.flaticon.com/512/3307/3307222.png';">
+                    <h2>TraficGenius 3C <span class="logo-divider">|</span> <span class="logo-subtitle">MODEL ARCHITECTURES (3 CLASSES)</span></h2>
+                </div>
+            </div>
+            
+            <nav class="header-nav">
+                <a href="index_3classes.html" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    Dashboard
+                </a>
+                <a href="index_3classes.html" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    Incidents
+                </a>
+                <a href="modelos_3classes.html" class="nav-link active">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    Models
+                </a>
+                <a href="#" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    Reports
+                </a>
+                <a href="#" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    Settings
+                </a>
+            </nav>
+            
+            <div class="header-right">
+                <div class="theme-picker" style="margin-right: 20px; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Tema Principal:</span>
+                    <input type="color" id="theme-color-picker" value="#00e5ff" style="cursor: pointer; border: none; background: transparent; width: 28px; height: 28px; padding: 0;">
+                </div>
+                <div class="user-profile">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    <span>User Profile</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Área Principal -->
+        <main class="hud-main-container" style="overflow-y: auto; padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%;">
+            
+            <!-- Seção Superior: Gráfico de Performance -->
+            <section class="comparison-section glass-panel" style="padding: 24px;">
+                <h3 style="font-family: var(--font-head); color: var(--neon-cyan); font-size: 1.4rem; font-weight: 800; letter-spacing: 0.5px;">COMPARATIVO GERAL DE PERFORMANCE (3 CLASSES)</h3>
+                <p class="subtitle" style="margin-bottom: 15px;">Avaliação multiclasse de acurácia global, F1-Macro e ROC-AUC para as 3 classes.</p>
+                
+                <div class="comparison-chart-container">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Seção do Grid de Modelos -->
+            <section class="models-grid">
+                
+                <!-- Modelo 1: XGBoost -->
+                <div class="model-card glass-panel xgb">
+                    <div class="model-header">
+                        <div class="model-title">
+                            <span style="font-size: 1.5rem;">🚀</span> XGBoost Classifier
+                        </div>
+                        <span class="model-badge">Primary Champion</span>
+                    </div>
+                    
+                    <div class="model-metrics">
+                        <div class="metric-box">
+                            <div class="metric-lbl">Acurácia</div>
+                            <div class="metric-val">57.9%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">ROC-AUC</div>
+                            <div class="metric-val">84.5%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">F1-Macro</div>
+                            <div class="metric-val">46.0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Esboço Visual (SVG Flowchart) -->
+                    <div class="model-diagram">
+                        <svg viewBox="0 0 400 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                            <style>
+                                .node { fill: rgba(0, 229, 255, 0.1); stroke: var(--neon-cyan); stroke-width: 1.5; }
+                                .text { font-family: 'Outfit', sans-serif; font-size: 10px; fill: #FFF; text-anchor: middle; font-weight: bold; }
+                                .line { stroke: rgba(255, 255, 255, 0.2); stroke-width: 1.5; fill: none; }
+                            </style>
+                            <rect x="10" y="35" width="60" height="30" rx="5" class="node"/>
+                            <text x="40" y="53" class="text">Features</text>
+                            
+                            <polygon points="130,20 100,50 160,50" class="node"/>
+                            <text x="130" y="44" class="text">Árvore 1</text>
+                            
+                            <polygon points="210,20 180,50 240,50" class="node"/>
+                            <text x="210" y="44" class="text">Árvore 2</text>
+                            
+                            <polygon points="300,20 270,50 330,50" class="node"/>
+                            <text x="300" y="44" class="text">Árvore N</text>
+                            
+                            <path d="M 70,50 L 100,35 M 70,50 L 180,35 M 70,50 L 270,35" class="line"/>
+                            <path d="M 130,50 L 350,50 M 210,50 L 350,50 M 300,50 L 350,50" class="line"/>
+                            
+                            <rect x="340" y="35" width="50" height="30" rx="5" class="node"/>
+                            <text x="365" y="53" class="text">Sum</text>
+                        </svg>
+                    </div>
+
+                    <p class="model-description">
+                        Classificador de árvores impulsionadas por gradiente otimizado para 3 classes de severidade. Agrupa a severidade leve e moderada original em uma única categoria Leve/Médio, melhorando a consistência das predições de maior impacto. Mantém o topo da performance preditiva do projeto com Macro-ROC-AUC de 84.51%.
+                    </p>
+                </div>
+
+                <!-- Modelo 2: CNN 1D -->
+                <div class="model-card glass-panel cnn">
+                    <div class="model-header">
+                        <div class="model-title">
+                            <span style="font-size: 1.5rem;">🧠</span> CNN 1D (Deep Learning)
+                        </div>
+                        <span class="model-badge">Deep Neural Net</span>
+                    </div>
+                    
+                    <div class="model-metrics">
+                        <div class="metric-box">
+                            <div class="metric-lbl">Acurácia</div>
+                            <div class="metric-val">44.5%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">ROC-AUC</div>
+                            <div class="metric-val">78.5%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">F1-Macro</div>
+                            <div class="metric-val">36.5%</div>
+                        </div>
+                    </div>
+
+                    <!-- Esboço Visual (SVG Flowchart) -->
+                    <div class="model-diagram">
+                        <svg viewBox="0 0 400 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                            <style>
+                                .c-node { fill: rgba(255, 42, 85, 0.1); stroke: #FF2A55; stroke-width: 1.5; }
+                                .c-line { stroke: rgba(255, 255, 255, 0.2); stroke-width: 1.5; }
+                            </style>
+                            <rect x="10" y="25" width="50" height="50" rx="4" class="c-node"/>
+                            <text x="35" y="53" class="text">Input</text>
+                            
+                            <rect x="100" y="15" width="50" height="70" rx="4" class="c-node"/>
+                            <text x="125" y="53" class="text">Conv 1D</text>
+                            
+                            <rect x="180" y="25" width="50" height="50" rx="4" class="c-node"/>
+                            <text x="205" y="53" class="text">MaxPool</text>
+                            
+                            <rect x="260" y="15" width="50" height="70" rx="4" class="c-node"/>
+                            <text x="285" y="53" class="text">Dense</text>
+                            
+                            <rect x="340" y="30" width="50" height="40" rx="4" class="c-node"/>
+                            <text x="365" y="53" class="text">Softmax</text>
+                            
+                            <line x1="60" y1="50" x2="100" y2="50" class="c-line"/>
+                            <line x1="150" y1="50" x2="180" y2="50" class="c-line"/>
+                            <line x1="230" y1="50" x2="260" y2="50" class="c-line"/>
+                            <line x1="310" y1="50" x2="340" y2="50" class="c-line"/>
+                        </svg>
+                    </div>
+
+                    <p class="model-description">
+                        Rede neural convolucional profunda 1D operando sobre 3 classes de saída. Aplica filtros lineares deslizantes na dimensão das variáveis para extrair padrões geoclimáticos correlacionados, prevenindo sobreajuste com Dropout e simplificando o escopo decisório.
+                    </p>
+                </div>
+
+                <!-- Modelo 3: Random Forest -->
+                <div class="model-card glass-panel rf">
+                    <div class="model-header">
+                        <div class="model-title">
+                            <span style="font-size: 1.5rem;">🌲</span> Random Forest
+                        </div>
+                        <span class="model-badge">Bagging Ensemble</span>
+                    </div>
+                    
+                    <div class="model-metrics">
+                        <div class="metric-box">
+                            <div class="metric-lbl">Acurácia</div>
+                            <div class="metric-val">50.2%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">ROC-AUC</div>
+                            <div class="metric-val">79.7%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">F1-Macro</div>
+                            <div class="metric-val">40.9%</div>
+                        </div>
+                    </div>
+
+                    <!-- Esboço Visual (SVG Flowchart) -->
+                    <div class="model-diagram">
+                        <svg viewBox="0 0 400 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                            <style>
+                                .r-node { fill: rgba(255, 138, 0, 0.1); stroke: #FF8A00; stroke-width: 1.5; }
+                            </style>
+                            <rect x="10" y="30" width="60" height="40" rx="4" class="r-node"/>
+                            <text x="40" y="53" class="text">Dataset</text>
+                            
+                            <circle cx="140" cy="25" r="15" class="r-node"/>
+                            <text x="140" y="28" class="text">B1</text>
+                            
+                            <circle cx="140" cy="75" r="15" class="r-node"/>
+                            <text x="140" y="78" class="text">B2</text>
+                            
+                            <polygon points="250,10 230,35 270,35" class="r-node"/>
+                            <text x="250" y="28" class="text">T1</text>
+                            
+                            <polygon points="250,60 230,85 270,85" class="r-node"/>
+                            <text x="250" y="78" class="text">T2</text>
+                            
+                            <rect x="330" y="30" width="60" height="40" rx="4" class="r-node"/>
+                            <text x="360" y="53" class="text">Voto Max</text>
+                            
+                            <line x1="70" y1="50" x2="125" y2="25" class="c-line"/>
+                            <line x1="70" y1="50" x2="125" y2="75" class="c-line"/>
+                            <line x1="155" y1="25" x2="230" y2="25" class="c-line"/>
+                            <line x1="155" y1="75" x2="230" y2="75" class="c-line"/>
+                            <line x1="270" y1="25" x2="330" y2="50" class="c-line"/>
+                            <line x1="270" y1="75" x2="330" y2="50" class="c-line"/>
+                        </svg>
+                    </div>
+
+                    <p class="model-description">
+                        Conjunto bagging de árvores de decisão treinado sob as premissas de amostragem paralela de 10% (max_samples=0.1) nos dados mapeados de 3 classes. Com a redução da dimensionalidade do espaço-alvo, a variância entre as árvores foi mitigada, melhorando a acurácia global para 50.19%.
+                    </p>
+                </div>
+
+                <!-- Modelo 4: Regressão Logística -->
+                <div class="model-card glass-panel lr">
+                    <div class="model-header">
+                        <div class="model-title">
+                            <span style="font-size: 1.5rem;">📈</span> Regressão Logística
+                        </div>
+                        <span class="model-badge">Baseline Linear</span>
+                    </div>
+                    
+                    <div class="model-metrics">
+                        <div class="metric-box">
+                            <div class="metric-lbl">Acurácia</div>
+                            <div class="metric-val">43.0%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">ROC-AUC</div>
+                            <div class="metric-val">67.4%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">F1-Macro</div>
+                            <div class="metric-val">33.8%</div>
+                        </div>
+                    </div>
+
+                    <!-- Esboço Visual (SVG Flowchart) -->
+                    <div class="model-diagram">
+                        <svg viewBox="0 0 400 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                            <style>
+                                .l-node { fill: rgba(255, 255, 255, 0.05); stroke: #FFF; stroke-width: 1.5; }
+                            </style>
+                            <circle cx="40" cy="25" r="15" class="l-node"/>
+                            <text x="40" y="28" class="text">X1</text>
+                            
+                            <circle cx="40" cy="75" r="15" class="l-node"/>
+                            <text x="40" y="78" class="text">X2</text>
+                            
+                            <rect x="150" y="35" width="80" height="30" rx="4" class="l-node"/>
+                            <text x="190" y="53" class="text">Soma Pesada</text>
+                            
+                            <rect x="270" y="30" width="50" height="40" rx="4" class="l-node"/>
+                            <text x="295" y="53" class="text">Sigmoid</text>
+                            
+                            <rect x="350" y="35" width="40" height="30" rx="4" class="l-node"/>
+                            <text x="370" y="53" class="text">Y</text>
+                            
+                            <line x1="55" y1="25" x2="150" y2="50" class="c-line"/>
+                            <line x1="55" y1="75" x2="150" y2="50" class="c-line"/>
+                            <line x1="230" y1="50" x2="270" y2="50" class="c-line"/>
+                            <line x1="320" y1="50" x2="350" y2="50" class="c-line"/>
+                        </svg>
+                    </div>
+
+                    <p class="model-description">
+                        Classificador estatístico linear multinomial (3 classes) servindo como baseline do projeto. Ao simplificar o mapeamento do espaço de classificação, a performance geral do classificador linear subiu para 43.03% de acurácia global e 33.76% de F1-Macro.
+                    </p>
+                </div>
+
+            </section>
+            
+        </main>
+    </div>
+
+    <script src="libs/leaflet.js"></script>
+    <script src="libs/chart.js"></script>
+    <script src="libs/chartjs-plugin-datalabels.js"></script>
+    
+    <script src="network-bg.js"></script>
+    
+    <script>
+        const colorPicker = document.getElementById('theme-color-picker');
+        if (colorPicker) {
+            colorPicker.addEventListener('input', (e) => {
+                const newColor = e.target.value;
+                document.documentElement.style.setProperty('--neon-cyan', newColor);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            Chart.defaults.color = 'rgba(255, 255, 255, 0.6)';
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['XGBoost (Otimizado)', 'CNN 1D (Deep)', 'Random Forest', 'Regressão Logística'],
+                    datasets: [
+                        {
+                            label: 'Acurácia Global (%)',
+                            data: [57.9, 44.5, 50.2, 43.0],
+                            backgroundColor: 'rgba(0, 229, 255, 0.5)',
+                            borderColor: '#00e5ff',
+                            borderWidth: 2,
+                            borderRadius: 6
+                        },
+                        {
+                            label: 'F1-Score Macro (%)',
+                            data: [46.0, 36.5, 40.9, 33.8],
+                            backgroundColor: 'rgba(255, 42, 85, 0.5)',
+                            borderColor: '#FF2A55',
+                            borderWidth: 2,
+                            borderRadius: 6
+                        },
+                        {
+                            label: 'ROC-AUC (%)',
+                            data: [84.5, 78.5, 79.7, 67.4],
+                            backgroundColor: 'rgba(255, 138, 0, 0.5)',
+                            borderColor: '#FF8A00',
+                            borderWidth: 2,
+                            borderRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            align: 'end',
+                            labels: { boxWidth: 12, usePointStyle: true }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, border: { display: false } },
+                        y: { 
+                            grid: { color: 'rgba(255,255,255,0.05)' }, 
+                            border: { display: false },
+                            max: 100
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
