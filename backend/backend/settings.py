@@ -156,3 +156,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Permitir que as páginas sejam carregadas em iframes da mesma origem (necessário para os mapas interativos)
+X_FRAME_OPTIONS = 'SAMEORIGIN'

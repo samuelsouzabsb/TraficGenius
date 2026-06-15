@@ -1,6 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AcidenteViewSet, DashboardStatsView, PredictionView, DashboardStatsView3Classes, PredictionView3Classes
+from .views import (
+    AcidenteViewSet, DashboardStatsView, PredictionView, 
+    DashboardStatsView3Classes, PredictionView3Classes,
+    DFH3ListView, PredictH3View, PredictGridView
+)
 
 # Utiliza o roteador padrão do DRF para o ViewSet de acidentes
 router = DefaultRouter()
@@ -21,5 +25,10 @@ urlpatterns = [
     
     # Rota para predição de severidade em tempo real - 3 Classes (/api/predict-3classes/)
     path('predict-3classes/', PredictionView3Classes.as_view(), name='predict-3classes'),
+    
+    # Novas rotas para Distrito Federal (DF)
+    path('df-h3/', DFH3ListView.as_view(), name='df-h3'),
+    path('predict-h3/', PredictH3View.as_view(), name='predict-h3'),
+    path('predict-grid/', PredictGridView.as_view(), name='predict-grid'),
 ]
 

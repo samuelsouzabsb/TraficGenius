@@ -678,3 +678,512 @@ class DashboardStatsView3Classes(APIView):
             "map_clusters": map_clusters
         })
 
+
+# -------------------------------------------------------------
+# NOVAS VIEWS PARA PREDIÇÃO DE DF COM DADOS H3 E METEOROLOGIA REAL-TIME
+# -------------------------------------------------------------
+
+_STACKING_MODEL = None
+_STACKING_SCALER = None
+_BASE_MODELS = {}
+_FEATURE_NAMES = None
+
+def get_stacking_model_and_scaler():
+    global _STACKING_MODEL, _STACKING_SCALER, _BASE_MODELS, _FEATURE_NAMES
+    if _STACKING_MODEL is None or _STACKING_SCALER is None or not _BASE_MODELS:
+        import os
+        import json
+        import joblib
+        
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        dataset_dir = os.path.join(project_root, "dataset")
+        
+        # Carrega scaler
+        scaler_path = os.path.join(dataset_dir, "scaler_flag_pais.joblib")
+        _STACKING_SCALER = joblib.load(scaler_path)
+        
+        # Carrega nomes das colunas
+        feature_names_path = os.path.join(dataset_dir, "feature_names_flag_pais.json")
+        if os.path.exists(feature_names_path):
+            with open(feature_names_path, "r") as f:
+                _FEATURE_NAMES = json.load(f)
+        else:
+            if hasattr(_STACKING_SCALER, "feature_names_in_"):
+                _FEATURE_NAMES = list(_STACKING_SCALER.feature_names_in_)
+        
+        # Carrega modelos base
+        _BASE_MODELS['Logistic Regression'] = joblib.load(os.path.join(dataset_dir, "model_logit_flag_pais.joblib"))
+        _BASE_MODELS['LDA'] = joblib.load(os.path.join(dataset_dir, "model_lda_flag_pais.joblib"))
+        _BASE_MODELS['Random Forest'] = joblib.load(os.path.join(dataset_dir, "model_rf_flag_pais.joblib"))
+        _BASE_MODELS['XGBoost'] = joblib.load(os.path.join(dataset_dir, "model_xgb_flag_pais.joblib"))
+        
+        # Carrega MLP (Keras ou Joblib)
+        mlp_h5_path = os.path.join(dataset_dir, "model_mlp_flag_pais.h5")
+        mlp_joblib_path = os.path.join(dataset_dir, "model_mlp_flag_pais.joblib")
+        if os.path.exists(mlp_h5_path):
+            import tensorflow as tf
+            _BASE_MODELS['Neural Network (MLP)'] = tf.keras.models.load_model(mlp_h5_path)
+        elif os.path.exists(mlp_joblib_path):
+            _BASE_MODELS['Neural Network (MLP)'] = joblib.load(mlp_joblib_path)
+            
+        # Carrega o Meta Stacking
+        _STACKING_MODEL = joblib.load(os.path.join(dataset_dir, "model_stacking_flag_pais.joblib"))
+        
+    return _STACKING_MODEL, _STACKING_SCALER, _BASE_MODELS, _FEATURE_NAMES
+
+
+class DFH3ListView(APIView):
+    """
+    Retorna a lista de todas as células H3 do Distrito Federal (DF) e suas coordenadas.
+    GET /api/df-h3/
+    """
+    def get(self, request, format=None):
+        import os
+        import json
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        json_path = os.path.join(project_root, "backend", "api", "df_h3_data.json")
+        
+        if not os.path.exists(json_path):
+            return Response({"error": "Base de dados H3 do DF não localizada. Execute o script de agregação."},
+                            status=status.HTTP_404_NOT_FOUND)
+            
+        with open(json_path, "r", encoding="utf-8") as f:
+            h3_db = json.load(f)
+            
+        list_h3 = []
+        for h3_index, info in h3_db.items():
+            list_h3.append({
+                "h3_index": h3_index,
+                "latitude": info["latitude"],
+                "longitude": info["longitude"],
+                "contagem_acidentes": info["contagem_acidentes"]
+            })
+            
+        list_h3 = sorted(list_h3, key=lambda x: x["contagem_acidentes"], reverse=True)
+        return Response(list_h3)
+
+
+class PredictH3View(APIView):
+    """
+    Recebe um H3 index do DF, faz a consulta climática real-time via API Open-Meteo
+    e prevê o risco/severidade utilizando o modelo campeão de Stacking.
+    POST /api/predict-h3/
+    """
+    def post(self, request, format=None):
+        import os
+        import json
+        import math
+        import requests
+        
+        h3_index = request.data.get("h3_index")
+        simulated_hour = request.data.get("hora_dia") # opcional
+        simulated_weekday = request.data.get("dia_semana") # opcional
+        simulated_month = request.data.get("mes") # opcional
+        
+        if not h3_index:
+            return Response({"error": "Parâmetro 'h3_index' é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # 1. Carrega dados de características físicas da célula H3
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        json_path = os.path.join(project_root, "backend", "api", "df_h3_data.json")
+        
+        if not os.path.exists(json_path):
+            return Response({"error": "Base de dados H3 do DF não localizada."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+        with open(json_path, "r", encoding="utf-8") as f:
+            h3_db = json.load(f)
+            
+        if h3_index not in h3_db:
+            return Response({"error": f"H3 index '{h3_index}' não pertence ao Distrito Federal."}, status=status.HTTP_404_NOT_FOUND)
+            
+        cell_info = h3_db[h3_index]
+        lat = cell_info["latitude"]
+        lng = cell_info["longitude"]
+        phys_features = cell_info["features"]
+        
+        # 2. Conecta à API do Open-Meteo para buscar clima real-time
+        try:
+            url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=dew_point_2m"
+            res = requests.get(url_weather, timeout=5)
+            if res.status_code != 200:
+                raise Exception("Erro HTTP ao acessar Open-Meteo API.")
+            w_data = res.json()
+            curr = w_data.get("current_weather", {})
+            
+            temp_c = float(curr.get("temperature", 22.0))
+            precip_mm = float(curr.get("precipitation", 0.0) if "precipitation" in curr else 0.0)
+            wind_speed_kmh = float(curr.get("windspeed", 8.0))
+            wind_dir = float(curr.get("winddirection", 90.0))
+            
+            # Aproximação de dew point via umidade ou busca da série
+            import datetime
+            now_dt = datetime.datetime.now()
+            current_hour_str = now_dt.strftime("%Y-%m-%dT%H:00")
+            dew_point_c = temp_c - 6.0 # default aproximado se falhar
+            hourly = w_data.get("hourly", {})
+            if "time" in hourly and current_hour_str in hourly["time"]:
+                idx = hourly["time"].index(current_hour_str)
+                dew_point_c = float(hourly["dew_point_2m"][idx])
+            
+            # De acordo com Open-Meteo as variáveis adicionais vêm em campos indiretos
+            # Se não estiverem no current_weather, usamos aproximação média saudável para DF
+            pressure_hpa = 1012.0
+            cloud_cover = 35.0
+            
+        except Exception as e:
+            print(f"Erro ao buscar clima real-time: {e}. Usando valores médios históricos do DF.")
+            temp_c = 22.0
+            precip_mm = 0.0
+            wind_speed_kmh = 8.0
+            wind_dir = 90.0
+            pressure_hpa = 1012.0
+            cloud_cover = 40.0
+            dew_point_c = 15.0
+            
+        # Converte velocidade do vento de km/h para m/s
+        wind_speed_ms = wind_speed_kmh / 3.6
+        # Calcula vetores de vento U e V
+        rad = math.radians(wind_dir)
+        wind_u = wind_speed_ms * math.sin(rad)
+        wind_v = wind_speed_ms * math.cos(rad)
+        
+        # 3. Determina parâmetros temporais
+        import datetime
+        now = datetime.datetime.now()
+        hour = int(simulated_hour) if simulated_hour is not None else now.hour
+        weekday = int(simulated_weekday) if simulated_weekday is not None else now.weekday()
+        month = int(simulated_month) if simulated_month is not None else now.month
+        peak_hour = 1 if hour in [7, 8, 9, 17, 18, 19] else 0
+        
+        # 4. Carrega modelo Stacking e Scaler
+        try:
+            model_stacking, scaler, base_models, feature_names = get_stacking_model_and_scaler()
+        except Exception as err:
+            return Response({"error": f"Erro ao inicializar modelos de IA: {str(err)}"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+        # 5. Constrói dicionário de entrada de features
+        input_dict = {}
+        
+        # Define features não-categóricas
+        input_dict['quantidade_cruzamentos'] = float(phys_features.get('quantidade_cruzamentos', 0))
+        input_dict['quantidade_semaforos'] = float(phys_features.get('quantidade_semaforos', 0))
+        input_dict['velocidade_media'] = float(phys_features.get('velocidade_media', 60.0))
+        input_dict['quantidade_faixas_media'] = float(phys_features.get('quantidade_faixas_media', 2.0))
+        input_dict['curvatura_acumulada'] = float(phys_features.get('curvatura_acumulada', 0.0))
+        input_dict['desvio_maximo_curvatura'] = float(phys_features.get('desvio_maximo_curvatura', 0.0))
+        input_dict['quantidade_curvas_acentuadas'] = float(phys_features.get('quantidade_curvas_acentuadas', 0))
+        input_dict['quantidade_rotatorias'] = float(phys_features.get('quantidade_rotatorias', 0))
+        input_dict['quantidade_pontes'] = float(phys_features.get('quantidade_pontes', 0))
+        input_dict['comprimento_pontes_metros'] = float(phys_features.get('comprimento_pontes_metros', 0.0))
+        input_dict['quantidade_tuneis'] = float(phys_features.get('quantidade_tuneis', 0))
+        input_dict['comprimento_tuneis_metros'] = float(phys_features.get('comprimento_tuneis_metros', 0.0))
+        input_dict['extensao_rodovia_metros_res11'] = float(phys_features.get('extensao_rodovia_metros_res11', 100.0))
+        input_dict['quantidade_postos_combustivel'] = float(phys_features.get('quantidade_postos_combustivel', 0))
+        input_dict['quantidade_restaurantes'] = float(phys_features.get('quantidade_restaurantes', 0))
+        input_dict['quantidade_escolas'] = float(phys_features.get('quantidade_escolas', 0))
+        input_dict['extensao_rodovia_metros_res10'] = float(phys_features.get('extensao_rodovia_metros_res10', 500.0))
+        input_dict['quantidade_hospitais'] = float(phys_features.get('quantidade_hospitais', 0))
+        input_dict['quantidade_rodovias_distintas'] = float(phys_features.get('quantidade_rodovias_distintas', 1.0))
+        input_dict['total_curvas_acentuadas'] = float(phys_features.get('total_curvas_acentuadas', 0))
+        input_dict['quantidade_locais_interesse'] = float(phys_features.get('quantidade_locais_interesse', 0))
+        input_dict['area_urbana_m2'] = float(phys_features.get('area_urbana_m2', 0.0))
+        input_dict['area_rural_m2'] = float(phys_features.get('area_rural_m2', 0.0))
+        input_dict['extensao_rodovia_metros_res9'] = float(phys_features.get('extensao_rodovia_metros_res9', 2000.0))
+        
+        # Clima
+        input_dict['temperatura_celsius'] = temp_c
+        input_dict['precipitacao_milimetros'] = precip_mm
+        input_dict['pressao_hpa'] = pressure_hpa
+        input_dict['velocidade_vento_u'] = wind_u
+        input_dict['velocidade_vento_v'] = wind_v
+        input_dict['cobertura_nuvens_percentual'] = cloud_cover
+        input_dict['ponto_orvalho_celsius'] = dew_point_c
+        
+        # Tempo / Controle
+        input_dict['Hora_do_Dia'] = float(hour)
+        input_dict['Dia_da_Semana'] = float(weekday)
+        input_dict['Mes'] = float(month)
+        input_dict['Horario_Pico'] = float(peak_hour)
+        input_dict['pais_US'] = 0.0 # Brasília é Brasil
+        
+        # Interações
+        input_dict['interacao_velocidade_faixas'] = input_dict['velocidade_media'] * input_dict['quantidade_faixas_media']
+        input_dict['interacao_chuva_curvas'] = input_dict['precipitacao_milimetros'] * input_dict['total_curvas_acentuadas']
+        input_dict['interacao_clima_curvatura'] = input_dict['temperatura_celsius'] * input_dict['curvatura_acumulada']
+        
+        # Inicializa dummies a 0
+        for name in feature_names:
+            if name.startswith('rodovia_dominante_'):
+                input_dict[name] = 0.0
+                
+        # Liga as dummies
+        res11_cat = phys_features.get('rodovia_dominante_res11', 'residential')
+        res10_cat = phys_features.get('rodovia_dominante_res10', 'residential')
+        res9_cat = phys_features.get('rodovia_dominante_res9', 'residential')
+        
+        if f"rodovia_dominante_res11_{res11_cat}" in input_dict:
+            input_dict[f"rodovia_dominante_res11_{res11_cat}"] = 1.0
+        if f"rodovia_dominante_res10_{res10_cat}" in input_dict:
+            input_dict[f"rodovia_dominante_res10_{res10_cat}"] = 1.0
+        if f"rodovia_dominante_res9_{res9_cat}" in input_dict:
+            input_dict[f"rodovia_dominante_res9_{res9_cat}"] = 1.0
+            
+        # Alinha vetor
+        vector = []
+        for name in feature_names:
+            vector.append(input_dict.get(name, 0.0))
+            
+        feature_vector = np.array([vector])
+        scaled_vector = scaler.transform(feature_vector)
+        
+        # Base preds
+        base_preds = {}
+        for name, model in base_models.items():
+            if name == 'Neural Network (MLP)':
+                if hasattr(model, 'predict_proba'):
+                    p = model.predict_proba(scaled_vector)[0, 1]
+                else:
+                    p = float(model.predict(scaled_vector).ravel()[0])
+            else:
+                p = model.predict_proba(scaled_vector)[0, 1]
+            base_preds[name] = p
+            
+        # Stacking input
+        meta_cols = ['Logistic Regression', 'LDA', 'Random Forest', 'Neural Network (MLP)', 'XGBoost']
+        meta_vector = np.array([[base_preds[col] for col in meta_cols]])
+        
+        # Stacking prediction
+        prob_fatal_grave = model_stacking.predict_proba(meta_vector)[0, 1]
+        prediction = 1 if prob_fatal_grave >= 0.27 else 0
+        
+        return Response({
+            "status": "success",
+            "h3_index": h3_index,
+            "latitude": lat,
+            "longitude": lng,
+            "clima_atual": {
+                "temperatura_c": round(temp_c, 1),
+                "precipitacao_mm": round(precip_mm, 2),
+                "pressao_hpa": round(pressure_hpa, 1),
+                "velocidade_vento_kmh": round(wind_speed_kmh, 1),
+                "cobertura_nuvens_percent": round(cloud_cover, 0),
+                "ponto_orvalho_c": round(dew_point_c, 1)
+            },
+            "caracteristicas_via": {
+                "velocidade_media_via": round(input_dict['velocidade_media'], 1),
+                "faixas_media": round(input_dict['quantidade_faixas_media'], 1),
+                "rodovia_dominante_res9": res9_cat,
+                "curvatura_acumulada": round(input_dict['curvatura_acumulada'], 4),
+                "total_curvas_acentuadas": int(input_dict['total_curvas_acentuadas']),
+                "quantidade_semaforos": int(input_dict['quantidade_semaforos']),
+                "quantidade_cruzamentos": int(input_dict['quantidade_cruzamentos']),
+                "contagem_acidentes_historicos": cell_info["contagem_acidentes"]
+            },
+            "previsao_ia": {
+                "probabilidade_grave_fatal": round(prob_fatal_grave * 100, 2),
+                "probabilidade_leve_moderada": round((1.0 - prob_fatal_grave) * 100, 2),
+                "classificacao_severidade": "Grave/Fatal" if prediction == 1 else "Leve/Moderado",
+                "classe_id": prediction,
+                "limiar_usado": 0.27
+            },
+            "probabilidades_modelos_base": {
+                "Logistic Regression": round(base_preds['Logistic Regression'] * 100, 2),
+                "LDA": round(base_preds['LDA'] * 100, 2),
+                "Random Forest": round(base_preds['Random Forest'] * 100, 2),
+                "XGBoost": round(base_preds['XGBoost'] * 100, 2),
+                "Neural Network (MLP)": round(base_preds['Neural Network (MLP)'] * 100, 2)
+            }
+        })
+
+
+
+
+
+class PredictGridView(APIView):
+    """
+    Executa o modelo binario em lote sobre todos os H3-11 do DF (mapa de calor).
+    POST /api/predict-grid/
+    Body: { "model": "xgb"|"rf"|"lr"|"lda"|"stacking", "datetime": "YYYY-MM-DDTHH:MM" }
+    """
+    def post(self, request, format=None):
+        import datetime as _dt
+        import pandas as _pd
+        import h3 as _h3
+        from concurrent.futures import ThreadPoolExecutor
+
+        model_key = request.data.get("model", "xgb").lower()
+        datetime_str = request.data.get("datetime", None)
+        try:
+            target_dt = _dt.datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M") if datetime_str else _dt.datetime.now()
+        except Exception:
+            target_dt = _dt.datetime.now()
+
+        hour    = target_dt.hour
+        weekday = target_dt.weekday()
+        month   = target_dt.month
+        peak_h  = 1.0 if hour in [7, 8, 9, 17, 18, 19] else 0.0
+
+        # 1. Carrega grade completa
+        try:
+            h3_db = _load_df_h3_complete()
+        except Exception as e:
+            return Response({"error": f"Erro ao carregar base H3: {e}"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        h3_11_items = {k: v for k, v in h3_db.items() if k.startswith("8b")} or h3_db
+
+        # 2. Mapeia cada H3-11 ao H3-6 pai (zonas de clima)
+        h3_6_map = {}
+        h3_6_unique = set()
+        for idx in h3_11_items:
+            p6 = _h3.cell_to_parent(idx, 6)
+            h3_6_map[idx] = p6
+            h3_6_unique.add(p6)
+
+        # 3. Busca clima em paralelo para cada zona H3-6
+        weather_by_h3_6 = {}
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            for zone, w in ex.map(_fetch_weather_for_h3_6, [(z, target_dt) for z in h3_6_unique]):
+                weather_by_h3_6[zone] = w
+
+        FALLBACK_W = {"temperatura_celsius":22.0,"ponto_orvalho_celsius":14.0,
+                      "pressao_hpa":887.0,"velocidade_vento_u":2.0,
+                      "velocidade_vento_v":1.0,"cobertura_nuvens_percentual":35.0,
+                      "precipitacao_milimetros":0.0}
+
+        # 4. Monta DataFrame (N × 95)
+        rows = []
+        meta = []
+
+        for h3_idx, cell in h3_11_items.items():
+            f  = cell.get("features", {})
+            lt = float(cell.get("latitude",  0))
+            ln = float(cell.get("longitude", 0))
+            w  = weather_by_h3_6.get(h3_6_map.get(h3_idx, ""), FALLBACK_W)
+
+            vel   = float(f.get("velocidade_media",         60.0))
+            faixas= float(f.get("quantidade_faixas_media",   2.0))
+            curv  = float(f.get("curvatura_acumulada",        0.0))
+            curvas= float(f.get("total_curvas_acentuadas",    0.0))
+            precip= float(w["precipitacao_milimetros"])
+            temp  = float(w["temperatura_celsius"])
+
+            row = {
+                "quantidade_cruzamentos":       float(f.get("quantidade_cruzamentos",       0)),
+                "quantidade_semaforos":          float(f.get("quantidade_semaforos",          0)),
+                "velocidade_media":              vel,
+                "quantidade_faixas_media":       faixas,
+                "curvatura_acumulada":           curv,
+                "desvio_maximo_curvatura":       float(f.get("desvio_maximo_curvatura",       0)),
+                "quantidade_curvas_acentuadas":  float(f.get("quantidade_curvas_acentuadas",  0)),
+                "quantidade_rotatorias":         float(f.get("quantidade_rotatorias",         0)),
+                "quantidade_pontes":             float(f.get("quantidade_pontes",             0)),
+                "comprimento_pontes_metros":     float(f.get("comprimento_pontes_metros",     0)),
+                "quantidade_tuneis":             float(f.get("quantidade_tuneis",             0)),
+                "comprimento_tuneis_metros":     float(f.get("comprimento_tuneis_metros",     0)),
+                "extensao_rodovia_metros_res11": float(f.get("extensao_rodovia_metros_res11", 0)),
+                "quantidade_postos_combustivel": float(f.get("quantidade_postos_combustivel", 0)),
+                "quantidade_restaurantes":       float(f.get("quantidade_restaurantes",       0)),
+                "quantidade_escolas":            float(f.get("quantidade_escolas",            0)),
+                "extensao_rodovia_metros_res10": float(f.get("extensao_rodovia_metros_res10", 0)),
+                "quantidade_hospitais":          float(f.get("quantidade_hospitais",          0)),
+                "quantidade_rodovias_distintas": float(f.get("quantidade_rodovias_distintas", 0)),
+                "total_curvas_acentuadas":       curvas,
+                "quantidade_locais_interesse":   float(f.get("quantidade_locais_interesse",   0)),
+                "area_urbana_m2":                float(f.get("area_urbana_m2",                0)),
+                "area_rural_m2":                 float(f.get("area_rural_m2",                 0)),
+                "extensao_rodovia_metros_res9":  float(f.get("extensao_rodovia_metros_res9",  0)),
+                "temperatura_celsius":           temp,
+                "ponto_orvalho_celsius":         float(w["ponto_orvalho_celsius"]),
+                "pressao_hpa":                   float(w["pressao_hpa"]),
+                "velocidade_vento_u":            float(w["velocidade_vento_u"]),
+                "velocidade_vento_v":            float(w["velocidade_vento_v"]),
+                "cobertura_nuvens_percentual":   float(w["cobertura_nuvens_percentual"]),
+                "precipitacao_milimetros":       precip,
+                "Hora_do_Dia":                   float(hour),
+                "Dia_da_Semana":                 float(weekday),
+                "Mes":                           float(month),
+                "Horario_Pico":                  peak_h,
+                "interacao_velocidade_faixas":   vel * faixas,
+                "interacao_chuva_curvas":        precip * curvas,
+                "interacao_clima_curvatura":     temp * curv,
+            }
+
+            # One-hot rodovias
+            for col in _GRID_FEATURE_NAMES:
+                if col.startswith("rodovia_dominante_"):
+                    row[col] = 0.0
+
+            def _set_dummy(prefix, cat):
+                col = f"{prefix}_{cat}"
+                if col in row:
+                    row[col] = 1.0
+                else:
+                    row[f"{prefix}_desconhecido"] = 1.0
+
+            _set_dummy("rodovia_dominante_res11", f.get("rodovia_dominante_res11", "residential"))
+            _set_dummy("rodovia_dominante_res10", f.get("rodovia_dominante_res10", "residential"))
+            _set_dummy("rodovia_dominante_res9",  f.get("rodovia_dominante_res9",  "residential"))
+
+            rows.append(row)
+            meta.append((h3_idx, round(lt, 5), round(ln, 5)))        # 5. Predição em lote
+        try:
+            model, scaler = _get_grid_model_and_scaler(model_key)
+        except Exception as e:
+            return Response({"error": f"Erro ao carregar modelo '{model_key}': {e}"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        df = _pd.DataFrame(rows, columns=_GRID_FEATURE_NAMES)
+        X_scaled = scaler.transform(df.values)
+
+        if model_key == "stacking":
+            import joblib
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            dataset_dir = os.path.join(project_root, "dataset")
+            base_preds = {}
+            for b_key in ["lr", "lda", "rf", "xgb"]:
+                b_model, _ = _get_grid_model_and_scaler(b_key)
+                if hasattr(b_model, "predict_proba"):
+                    base_preds[b_key] = b_model.predict_proba(X_scaled)[:, 1]
+                else:
+                    base_preds[b_key] = b_model.predict(X_scaled)
+                    
+            mlp_path = os.path.join(dataset_dir, "model_mlp_binaria.h5")
+            if os.path.exists(mlp_path):
+                import tensorflow as tf
+                import numpy as np
+                mlp_model = tf.keras.models.load_model(mlp_path)
+                mlp_p = mlp_model.predict(X_scaled)
+                if len(mlp_p.shape) > 1 and mlp_p.shape[1] > 1:
+                    base_preds['mlp'] = mlp_p[:, 1]
+                else:
+                    base_preds['mlp'] = mlp_p.flatten()
+            else:
+                base_preds['mlp'] = base_preds['xgb']
+                
+            import numpy as np
+            meta_cols = ['lr', 'lda', 'rf', 'mlp', 'xgb']
+            X_stacking = np.column_stack([base_preds[col] for col in meta_cols])
+            
+            if hasattr(model, "predict_proba"):
+                probs = model.predict_proba(X_stacking)[:, 1]
+            else:
+                probs = model.predict(X_stacking).astype(float)
+        else:
+            if hasattr(model, "predict_proba"):
+                probs = model.predict_proba(X_scaled)[:, 1]
+            else:
+                probs = model.predict(X_scaled).astype(float)
+
+        # 6. Resposta compacta
+        results = [
+            {"h": h3_idx, "p": round(float(prob), 3), "lt": lt, "ln": ln}
+            for (h3_idx, lt, ln), prob in zip(meta, probs)
+        ]
+
+        return Response({
+            "model":         model_key,
+            "datetime":      target_dt.strftime("%Y-%m-%dT%H:%M"),
+            "total_cells":   len(results),
+            "weather_zones": len(h3_6_unique),
+            "results":       results,
+        })
+

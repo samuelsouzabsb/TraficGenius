@@ -1,0 +1,523 @@
+# -*- coding: utf-8 -*-
+"""
+Gerador de Mapa de Calor Global (Global Accident Heatmap Generator)
+Este script lê a base completa consolidada de 8,1 milhões de registros, 
+realiza agregação espacial por arredondamento de coordenadas e exporta
+um dashboard de mapa de calor interativo e de alto desempenho para o frontend.
+"""
+
+import os
+import json
+import pandas as pd
+import numpy as np
+
+def main():
+    print("--- Inicializando Exportação do Mapa Global de Acidentes ---")
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    dataset_path = os.path.join(project_root, "dataset", "Novo_tipo", "dataset_consolidado.parquet")
+    
+    if not os.path.exists(dataset_path):
+        print(f"[ERRO] Base de dados consolidada não encontrada em: {dataset_path}")
+        return
+        
+    print("Passo 1: Carregando coordenadas geográficas de 8.1 milhões de registros...")
+    df = pd.read_parquet(dataset_path, columns=['latitude', 'longitude', 'grau_severidade'])
+    
+    print("Passo 2: Filtrando coordenadas inválidas/outliers geográficos...")
+    # Limita as coordenadas aos limites físicos do planeta
+    valid = df[
+        (df['latitude'] >= -90) & (df['latitude'] <= 90) & 
+        (df['longitude'] >= -180) & (df['longitude'] <= 180)
+    ].copy()
+    
+    total_rows = len(df)
+    valid_rows = len(valid)
+    print(f" - Total de registros lidos: {total_rows:,}")
+    print(f" - Registros com coordenadas válidas: {valid_rows:,} ({valid_rows/total_rows*100:.3f}%)")
+    
+    print("Passo 3: Agregando dados em malha espacial de 2 casas decimais (~1.1 km)...")
+    valid['lat_round'] = valid['latitude'].round(2)
+    valid['lon_round'] = valid['longitude'].round(2)
+    
+    # Agrupa por coordenadas arredondadas e calcula a contagem e severidade média
+    grouped = valid.groupby(['lat_round', 'lon_round']).agg(
+        contagem=('grau_severidade', 'size'),
+        severidade_media=('grau_severidade', 'mean')
+    ).reset_index()
+    
+    print(f" - Total de células de grade geradas: {len(grouped):,}")
+    
+    # Converte para lista de listas para compactar ao máximo no JS
+    # Formato: [lat, lon, contagem, severidade_media]
+    data_list = []
+    for _, row in grouped.iterrows():
+        data_list.append([
+            round(float(row['lat_round']), 2),
+            round(float(row['lon_round']), 2),
+            int(row['contagem']),
+            round(float(row['severidade_media']), 2)
+        ])
+        
+    print("Passo 4: Salvando arquivo javascript de dados do mapa (dados_mapa.js)...")
+    frontend_dir = os.path.join(project_root, "frontend")
+    os.makedirs(frontend_dir, exist_ok=True)
+    
+    js_file = os.path.join(frontend_dir, "dados_mapa.js")
+    with open(js_file, 'w', encoding='utf-8') as f:
+        f.write("/**\n * Dados agregados de coordenadas de acidentes (US & BR)\n")
+        f.write(" * Formato de cada entrada: [lat, lng, contagem, severidade_media]\n */\n")
+        f.write("window.globalAccidentData = ")
+        json.dump(data_list, f, separators=(',', ':')) # Separadores compactados (sem espaços)
+        f.write(";\n")
+        
+    print(f" - Dados do mapa exportados para: {js_file} ({os.path.getsize(js_file)/1024/1024:.2f} MB)")
+    
+    print("Passo 5: Criando a página HTML interativa do mapa (mapa_completo.html)...")
+    html_file = os.path.join(frontend_dir, "mapa_completo.html")
+    
+    html_content = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TraficGenius - Mapa de Calor Global</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <style>
+        :root {
+            --bg-dark: #07070b;
+            --panel-bg: rgba(10, 10, 18, 0.7);
+            --neon-pink: #ff0055;
+            --neon-cyan: #00f0ff;
+            --neon-purple: #9d00ff;
+            --text-light: #e2e2e9;
+            --text-muted: rgba(226, 226, 233, 0.6);
+            --border-glow: rgba(0, 240, 255, 0.2);
+            --glass-blur: blur(12px);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background-color: #0d0d14 !important;
+        }
+
+        /* Glassmorphism HUD Panels */
+        .hud-panel {
+            position: absolute;
+            background: var(--panel-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-glow);
+            border-radius: 16px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5),
+                        0 0 15px 0 rgba(0, 240, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Title Panel */
+        .title-panel {
+            top: 24px;
+            left: 24px;
+            padding: 20px 24px;
+            max-width: 420px;
+        }
+
+        .title-panel h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, #fff 30%, var(--neon-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+
+        .title-panel p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            bottom: 24px;
+            left: 24px;
+            padding: 20px 24px;
+            width: 380px;
+        }
+
+        .control-panel h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--neon-cyan);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .control-group label span {
+            color: var(--neon-cyan);
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--neon-cyan);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--neon-cyan);
+            transition: all 0.1s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Stats Panel */
+        .stats-panel {
+            top: 24px;
+            right: 24px;
+            padding: 20px 24px;
+            width: 280px;
+        }
+
+        .stat-item {
+            margin-bottom: 12px;
+        }
+
+        .stat-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .stat-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+        }
+
+        .stat-val.cyan { color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0, 240, 255, 0.3); }
+        .stat-val.pink { color: var(--neon-pink); text-shadow: 0 0 8px rgba(255, 0, 85, 0.3); }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* Navigation Buttons */
+        .nav-panel {
+            top: 200px;
+            left: 24px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn-nav {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 10px 18px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 140px;
+        }
+
+        .btn-nav:hover {
+            background: rgba(0, 240, 255, 0.1);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn-nav.active {
+            background: var(--neon-cyan);
+            border-color: var(--neon-cyan);
+            color: var(--bg-dark);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+        }
+
+        .btn-nav.active:hover {
+            box-shadow: 0 0 18px rgba(0, 240, 255, 0.6);
+        }
+
+        /* Leaflet custom popup styling */
+        .leaflet-popup-content-wrapper {
+            background: rgba(10, 10, 18, 0.9) !important;
+            backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-glow);
+            border-radius: 8px;
+            color: var(--text-light);
+        }
+        
+        .leaflet-popup-tip {
+            background: rgba(10, 10, 18, 0.9) !important;
+            border-left: 1px solid var(--border-glow);
+            border-bottom: 1px solid var(--border-glow);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <!-- Title HUD Panel -->
+    <div class="hud-panel title-panel">
+        <h1>TraficGenius</h1>
+        <p>Mapa de Calor Espacial de Densidade de Acidentes. Agregação e inteligência geográfica de 8.1 milhões de registros integrando dados de rodovias dos EUA (US) e do Brasil (BR).</p>
+    </div>
+
+    <!-- Navigation Panel -->
+    <div class="hud-panel nav-panel">
+        <button class="btn-nav active" id="btn-us" onclick="focusCountry('US')">EUA (US)</button>
+        <button class="btn-nav" id="btn-br" onclick="focusCountry('BR')">Brasil (BR)</button>
+    </div>
+
+    <!-- Stats HUD Panel -->
+    <div class="hud-panel stats-panel">
+        <div class="stat-item">
+            <div class="stat-val cyan" id="stat-total-acc">8.102.005</div>
+            <div class="stat-label">Total de Acidentes</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-val" id="stat-total-cells">442.545</div>
+            <div class="stat-label">Hotspots Mapeados (~1km)</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-val pink" id="stat-view">EUA (US)</div>
+            <div class="stat-label">Visualização Ativa</div>
+        </div>
+    </div>
+
+    <!-- Control HUD Panel -->
+    <div class="hud-panel control-panel">
+        <h2>Ajustes Dinâmicos</h2>
+        <div class="control-group">
+            <label>Raio de Dispersão: <span id="val-radius">12px</span></label>
+            <input type="range" id="slider-radius" min="2" max="35" value="12" oninput="updateHeatmap()">
+        </div>
+        <div class="control-group">
+            <label>Desfoque (Blur): <span id="val-blur">15px</span></label>
+            <input type="range" id="slider-blur" min="2" max="40" value="15" oninput="updateHeatmap()">
+        </div>
+        <div class="control-group">
+            <label>Opacidade Mínima: <span id="val-opacity">0.15</span></label>
+            <input type="range" id="slider-opacity" min="0.0" max="0.8" step="0.05" value="0.15" oninput="updateHeatmap()">
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Leaflet.heat Plugin -->
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+    <!-- Dados do Mapa (Exportado via Python) -->
+    <script src="dados_mapa.js"></script>
+
+    <script>
+        let myMap;
+        let heatLayer;
+        let usPoints = [];
+        let brPoints = [];
+        let currentCountry = 'US';
+
+        function init() {
+            // Inicializa o mapa com fundo escuro minimalista
+            myMap = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView([39.8283, -98.5795], 4);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 18
+            }).addTo(myMap);
+
+            // Ajusta o tamanho do mapa se redimensionado
+            setTimeout(() => { myMap.invalidateSize(); }, 500);
+
+            // Separa os pontos por região geográfica
+            // Formato do dado: [lat, lng, contagem, severidade_media]
+            const rawData = window.globalAccidentData || [];
+            
+            // Atualiza KPI de células no HUD
+            document.getElementById('stat-total-cells').textContent = rawData.length.toLocaleString('pt-BR');
+
+            rawData.forEach(item => {
+                const lat = item[0];
+                const lng = item[1];
+                const count = item[2];
+                const severity = item[3];
+                
+                // Representação do ponto no heatmap: [lat, lng, intensidade]
+                // A intensidade é proporcional à raiz quadrada da contagem de acidentes para não saturar muito rápido
+                const intensity = Math.sqrt(count); 
+                const point = [lat, lng, intensity];
+
+                // Separação geográfica simplificada
+                // EUA: lat > 10 e lng < -40
+                if (lat > 10 && lng < -40) {
+                    usPoints.push(point);
+                } else {
+                    brPoints.push(point);
+                }
+            });
+
+            // Plota o heatmap inicial para o país padrão (US)
+            focusCountry('US');
+        }
+
+        function focusCountry(country) {
+            currentCountry = country;
+            
+            // Alterna os botões ativos
+            document.getElementById('btn-us').classList.toggle('active', country === 'US');
+            document.getElementById('btn-br').classList.toggle('active', country === 'BR');
+            
+            // Atualiza texto HUD
+            document.getElementById('stat-view').textContent = country === 'US' ? 'EUA (US)' : 'Brasil (BR)';
+            document.getElementById('stat-total-acc').textContent = country === 'US' ? '7.240.402' : '861.636';
+
+            // Remove o layer anterior se existir
+            if (heatLayer) {
+                myMap.removeLayer(heatLayer);
+            }
+
+            const points = country === 'US' ? usPoints : brPoints;
+            const center = country === 'US' ? [39.8283, -98.5795] : [-14.235, -51.9253];
+            const zoom = country === 'US' ? 4 : 4;
+
+            myMap.setView(center, zoom);
+
+            // Lê as propriedades dos controles
+            const radius = parseInt(document.getElementById('slider-radius').value);
+            const blur = parseInt(document.getElementById('slider-blur').value);
+            const opacity = parseFloat(document.getElementById('slider-opacity').value);
+
+            // Adiciona a camada de mapa de calor
+            heatLayer = L.heatLayer(points, {
+                radius: radius,
+                blur: blur,
+                minOpacity: opacity,
+                max: 15, // Intensidade máxima correspondente à saturação total de cor
+                gradient: {
+                    0.2: '#00f0ff', // Ciano neon (baixa intensidade)
+                    0.4: '#9d00ff', // Roxo neon
+                    0.6: '#ff0055', // Rosa neon
+                    1.0: '#fff'     // Branco brilhante (calor extremo)
+                }
+            }).addTo(myMap);
+        }
+
+        function updateHeatmap() {
+            if (!heatLayer) return;
+
+            const radius = parseInt(document.getElementById('slider-radius').value);
+            const blur = parseInt(document.getElementById('slider-blur').value);
+            const opacity = parseFloat(document.getElementById('slider-opacity').value);
+
+            // Atualiza textos HUD dos controles
+            document.getElementById('val-radius').textContent = radius + 'px';
+            document.getElementById('val-blur').textContent = blur + 'px';
+            document.getElementById('val-opacity').textContent = opacity.toFixed(2);
+
+            // Atualiza as opções da camada Leaflet
+            heatLayer.setOptions({
+                radius: radius,
+                blur: blur,
+                minOpacity: opacity
+            });
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
+"""
+    
+    with open(html_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+        
+    print(f" - Página do mapa exportada para: {html_file}")
+    print("\n--- Processamento Concluído com Sucesso! ---")
+    print("Para visualizar o mapa:")
+    print(f"1. Abra o arquivo no navegador: file:///{html_file.replace(os.sep, '/')}")
+
+if __name__ == "__main__":
+    main()
