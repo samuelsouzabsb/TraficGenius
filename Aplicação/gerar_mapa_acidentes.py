@@ -14,13 +14,13 @@ import numpy as np
 def main():
     print("--- Inicializando Exportação do Mapa Global de Acidentes ---")
     project_root = os.path.dirname(os.path.abspath(__file__))
-    dataset_path = os.path.join(project_root, "dataset", "Novo_tipo", "dataset_consolidado.parquet")
+    dataset_path = os.path.join(project_root, "dataset", "dados_unificados.parquet")
     
     if not os.path.exists(dataset_path):
         print(f"[ERRO] Base de dados consolidada não encontrada em: {dataset_path}")
         return
         
-    print("Passo 1: Carregando coordenadas geográficas de 8.1 milhões de registros...")
+    print("Passo 1: Carregando coordenadas geográficas de acidentes...")
     df = pd.read_parquet(dataset_path, columns=['latitude', 'longitude', 'grau_severidade'])
     
     print("Passo 2: Filtrando coordenadas inválidas/outliers geográficos...")

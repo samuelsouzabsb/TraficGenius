@@ -111,11 +111,11 @@ def plot_lift_gain_curves(y_true, y_prob_dict, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, facecolor='#121214')
     plt.close()
-
 def main():
     project_root = os.path.dirname(os.path.abspath(__file__))
-    # Os arquivos salvos na pasta de artefatos da conversa do Gemini
-    artifacts_dir = "C:/Users/samue/.gemini/antigravity/brain/ceea9544-b160-4a30-9d87-8e0226e648e7"
+    # Salva os gráficos dentro da pasta do projeto
+    artifacts_dir = os.path.join(project_root, "resultados_modelagem", "graficos_storytelling")
+    os.makedirs(artifacts_dir, exist_ok=True)
     
     input_file = os.path.join(project_root, "dataset", "dataset_amostra_limpa_binaria.parquet")
     output_dir = os.path.join(project_root, "dataset")
@@ -123,6 +123,19 @@ def main():
     apply_chart_style()
     print("[INFO] Carregando dados...")
     df = pd.read_parquet(input_file)
+    # Garante a existência do mapeamento das colunas climáticas e de geolocalização traduzidas
+    df = df.rename(columns={
+        'grau_severidade': 'severidade_binaria',
+        'Temperatura_F': 'temperatura_celsius',
+        'Velocidade_Vento_Mph': 'velocidade_media',
+        'pais': 'pais'
+    })
+    df['severidade_binaria'] = df['grau_severidade'].map({1: 0, 2: 0, 3: 1, 4: 1}) if 'grau_severidade' in df.columns else df['severidade_binaria']
+    
+    # Amostragem estatística para evitar estouro de memória no Seaborn / Numpy
+    print("[INFO] Extraindo amostra de 100.000 registros para geração segura de gráficos...")
+    df = df.sample(n=min(100000, len(df)), random_state=42).copy()
+    
     df['severidade_binaria'] = df['severidade_binaria'].astype(int)
     continuous_cols = get_continuous_features(df)
     

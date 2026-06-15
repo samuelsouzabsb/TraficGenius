@@ -115,8 +115,8 @@ def main():
     print("\n--- Criando Variável Preditora de Flag de País ---")
     df['pais_US'] = (df['pais'] == 'US').astype(int)
     
-    # Drop das colunas de controle temporal e da coluna categórica original de país
-    df = df.drop(columns=['data_inversa', 'pais'])
+    # A coluna pais é removida mas a flag de país criada (pais_US) é mantida
+    df = df.drop(columns=['pais'])
     
     target_col = 'severidade_binaria'
     cat_cols = ['rodovia_dominante_res11', 'rodovia_dominante_res10', 'rodovia_dominante_res9']

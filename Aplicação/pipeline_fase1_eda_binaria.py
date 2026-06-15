@@ -84,13 +84,6 @@ def load_and_sample_data(file_path, sample_size=None):
     
     usecols = [
         'grau_severidade', 'data_inversa', 'horario', 'pais',
-        'n_cruzamentos', 'n_semaforos', 'speed_mean', 'speed_min', 'speed_max', 'lanes_mean', 
-        'curv_accumulated', 'curv_max_deviation', 'curv_sharp_count', 'n_rotatorias', 
-        'n_pontes', 'bridge_length_m', 'n_tuneis', 'tunnel_length_m', 'road_length_m_h11', 
-        'dominant_highway_h11', 'n_postos', 'n_restaurantes', 'n_escolas', 'road_length_m_h10', 
-        'dominant_highway_h10', 'n_hospitais', 'road_count_distinct', 'total_sharp_curves', 
-        'place_count', 'urban_area_m2', 'rural_area_m2', 'road_length_m_h9', 'place_type', 
-        'dominant_highway_h9', 'urban_ratio',
         'temperature_c', 'dew_point_c', 'pressure_hpa', 'wind_u', 'wind_v', 'cloud_cover', 'precip_mm'
     ]
     
@@ -124,20 +117,17 @@ def feature_engineering(df):
     """
     print(f"\n--- 2. Feature Engineering Temporária ---")
     
-    # Otimizado: evita converter objetos datetime.time para string usando loop direto mais rápido
-    horarios = df['horario'].to_numpy()
-    df['Hora_do_Dia'] = [x.hour if hasattr(x, 'hour') else int(str(x).split(':')[0]) for x in horarios]
-    
-    # Extração de dia e mês
+    # Converte data_inversa para datetime
     df['data_inversa'] = pd.to_datetime(df['data_inversa'])
+    
+    # Extração de componentes
+    df['Hora_do_Dia'] = df['data_inversa'].dt.hour
     df['Dia_da_Semana'] = df['data_inversa'].dt.dayofweek
     df['Mes'] = df['data_inversa'].dt.month
     
     # Horário de pico (Rush Hour)
     df['Horario_Pico'] = df['Hora_do_Dia'].apply(lambda x: 1 if (7 <= x <= 9) or (16 <= x <= 18) else 0)
     
-    # Remove colunas brutas (mantém data_inversa para filtragem de período)
-    df = df.drop(columns=['horario'])
     print("Engenharia de recursos temporais concluída.")
     return df
 
@@ -255,10 +245,10 @@ def detect_outliers_mahalanobis(df):
 
 if __name__ == "__main__":
     project_root = os.path.dirname(os.path.abspath(__file__))
-    input_file = os.path.join(project_root, "dataset", "Novo_tipo", "dataset_consolidado.parquet")
+    input_file = os.path.join(project_root, "dataset", "dados_unificados.parquet")
     output_file = os.path.join(project_root, "dataset", "dataset_amostra_limpa_binaria.parquet")
     
-    # Carregamento do dataset completo (sem amostrar)
+    # Carregamento do dataset unificado contendo os campos de ambos os países
     df = load_and_sample_data(input_file, sample_size=None)
     
     # Mapeia target para binário
