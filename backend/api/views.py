@@ -996,7 +996,134 @@ class PredictH3View(APIView):
         })
 
 
+# ————————————————————————————————————————————————————————————————————————————————
+# PREDICT-GRID: Previsão em lote para todo o DF (mapa de calor H3-11)
+# ————————————————————————————————————————————————————————————————————————————————
 
+import json as _json_mod
+
+_GRID_FEATURE_NAMES = [
+    'quantidade_cruzamentos','quantidade_semaforos','velocidade_media',
+    'quantidade_faixas_media','curvatura_acumulada','desvio_maximo_curvatura',
+    'quantidade_curvas_acentuadas','quantidade_rotatorias','quantidade_pontes',
+    'comprimento_pontes_metros','quantidade_tuneis','comprimento_tuneis_metros',
+    'extensao_rodovia_metros_res11','quantidade_postos_combustivel',
+    'quantidade_restaurantes','quantidade_escolas','extensao_rodovia_metros_res10',
+    'quantidade_hospitais','quantidade_rodovias_distintas','total_curvas_acentuadas',
+    'quantidade_locais_interesse','area_urbana_m2','area_rural_m2',
+    'extensao_rodovia_metros_res9',
+    'temperatura_celsius','ponto_orvalho_celsius','pressao_hpa',
+    'velocidade_vento_u','velocidade_vento_v','cobertura_nuvens_percentual',
+    'precipitacao_milimetros',
+    'Hora_do_Dia','Dia_da_Semana','Mes','Horario_Pico',
+    'interacao_velocidade_faixas','interacao_chuva_curvas','interacao_clima_curvatura',
+    'rodovia_dominante_res11_desconhecido','rodovia_dominante_res11_living_street',
+    'rodovia_dominante_res11_motorway','rodovia_dominante_res11_motorway_link',
+    'rodovia_dominante_res11_path','rodovia_dominante_res11_pedestrian',
+    'rodovia_dominante_res11_primary','rodovia_dominante_res11_primary_link',
+    'rodovia_dominante_res11_residential','rodovia_dominante_res11_road',
+    'rodovia_dominante_res11_secondary','rodovia_dominante_res11_secondary_link',
+    'rodovia_dominante_res11_service','rodovia_dominante_res11_tertiary',
+    'rodovia_dominante_res11_tertiary_link','rodovia_dominante_res11_track',
+    'rodovia_dominante_res11_trunk','rodovia_dominante_res11_trunk_link',
+    'rodovia_dominante_res11_unclassified',
+    'rodovia_dominante_res10_desconhecido','rodovia_dominante_res10_living_street',
+    'rodovia_dominante_res10_motorway','rodovia_dominante_res10_motorway_link',
+    'rodovia_dominante_res10_path','rodovia_dominante_res10_pedestrian',
+    'rodovia_dominante_res10_primary','rodovia_dominante_res10_primary_link',
+    'rodovia_dominante_res10_residential','rodovia_dominante_res10_road',
+    'rodovia_dominante_res10_secondary','rodovia_dominante_res10_secondary_link',
+    'rodovia_dominante_res10_service','rodovia_dominante_res10_tertiary',
+    'rodovia_dominante_res10_tertiary_link','rodovia_dominante_res10_track',
+    'rodovia_dominante_res10_trunk','rodovia_dominante_res10_trunk_link',
+    'rodovia_dominante_res10_unclassified',
+    'rodovia_dominante_res9_desconhecido','rodovia_dominante_res9_living_street',
+    'rodovia_dominante_res9_motorway','rodovia_dominante_res9_motorway_link',
+    'rodovia_dominante_res9_path','rodovia_dominante_res9_pedestrian',
+    'rodovia_dominante_res9_primary','rodovia_dominante_res9_primary_link',
+    'rodovia_dominante_res9_residential','rodovia_dominante_res9_road',
+    'rodovia_dominante_res9_secondary','rodovia_dominante_res9_secondary_link',
+    'rodovia_dominante_res9_service','rodovia_dominante_res9_tertiary',
+    'rodovia_dominante_res9_tertiary_link','rodovia_dominante_res9_track',
+    'rodovia_dominante_res9_trunk','rodovia_dominante_res9_trunk_link',
+    'rodovia_dominante_res9_unclassified',
+]
+
+_DF_H3_COMPLETE_DB = None
+
+def _load_df_h3_complete():
+    global _DF_H3_COMPLETE_DB
+    if _DF_H3_COMPLETE_DB is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        complete_path = os.path.join(project_root, "backend", "api", "df_h3_grid_res9.json")
+        fallback_path = os.path.join(project_root, "backend", "api", "df_h3_data.json")
+        path = complete_path if os.path.exists(complete_path) else fallback_path
+        with open(path, "r", encoding="utf-8") as f:
+            _DF_H3_COMPLETE_DB = _json_mod.load(f)
+        print(f"[PredictGrid] Banco H3 carregado: {len(_DF_H3_COMPLETE_DB)} celulas")
+    return _DF_H3_COMPLETE_DB
+
+
+def _get_grid_model_and_scaler(model_key):
+    MODEL_MAP = {
+        "xgb":      ("model_xgb_binaria.joblib",     "scaler_binaria.joblib"),
+        "rf":       ("model_rf_binaria.joblib",       "scaler_binaria.joblib"),
+        "lr":       ("model_logit_binaria.joblib",    "scaler_binaria.joblib"),
+        "lda":      ("model_lda_binaria.joblib",      "scaler_binaria.joblib"),
+        "stacking": ("model_stacking_binaria.joblib", "scaler_binaria.joblib"),
+    }
+    if model_key not in MODEL_MAP:
+        model_key = "xgb"
+    model_file, scaler_file = MODEL_MAP[model_key]
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    dataset_dir = os.path.join(project_root, "dataset")
+    model = joblib.load(os.path.join(dataset_dir, model_file))
+    scaler = joblib.load(os.path.join(dataset_dir, scaler_file))
+    return model, scaler
+
+
+def _fetch_weather_for_h3_6(args):
+    h3_6_index, target_dt = args
+    import requests as _req, math as _math, h3 as _h3
+    lat, lng = _h3.cell_to_latlng(h3_6_index)
+    dt_str = target_dt.strftime("%Y-%m-%d")
+    hour = target_dt.hour
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat:.4f}&longitude={lng:.4f}"
+        f"&hourly=temperature_2m,dew_point_2m,surface_pressure,"
+        f"windspeed_10m,winddirection_10m,cloudcover,precipitation"
+        f"&start_date={dt_str}&end_date={dt_str}"
+        f"&timezone=America%2FSao_Paulo"
+    )
+    try:
+        resp = _req.get(url, timeout=12)
+        resp.raise_for_status()
+        data = resp.json()
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        target_str = target_dt.strftime("%Y-%m-%dT%H:00")
+        idx = times.index(target_str) if target_str in times else min(hour, len(times) - 1)
+        ws_kmh = float(hourly["windspeed_10m"][idx])
+        wd = float(hourly["winddirection_10m"][idx])
+        rad = _math.radians(wd)
+        ws_ms = ws_kmh / 3.6
+        return h3_6_index, {
+            "temperatura_celsius":         float(hourly["temperature_2m"][idx]),
+            "ponto_orvalho_celsius":       float(hourly["dew_point_2m"][idx]),
+            "pressao_hpa":                 float(hourly["surface_pressure"][idx]),
+            "velocidade_vento_u":          ws_ms * _math.sin(rad),
+            "velocidade_vento_v":          ws_ms * _math.cos(rad),
+            "cobertura_nuvens_percentual": float(hourly["cloudcover"][idx]),
+            "precipitacao_milimetros":     float(hourly["precipitation"][idx]),
+        }
+    except Exception:
+        return h3_6_index, {
+            "temperatura_celsius":22.0,"ponto_orvalho_celsius":14.0,
+            "pressao_hpa":887.0,"velocidade_vento_u":2.0,
+            "velocidade_vento_v":1.0,"cobertura_nuvens_percentual":35.0,
+            "precipitacao_milimetros":0.0,
+        }
 
 
 class PredictGridView(APIView):
@@ -1050,7 +1177,7 @@ class PredictGridView(APIView):
                       "velocidade_vento_v":1.0,"cobertura_nuvens_percentual":35.0,
                       "precipitacao_milimetros":0.0}
 
-        # 4. Monta DataFrame (N × 95)
+        # 4. Monta DataFrame (N Ã 95)
         rows = []
         meta = []
 
@@ -1125,7 +1252,9 @@ class PredictGridView(APIView):
             _set_dummy("rodovia_dominante_res9",  f.get("rodovia_dominante_res9",  "residential"))
 
             rows.append(row)
-            meta.append((h3_idx, round(lt, 5), round(ln, 5)))        # 5. Predição em lote
+            meta.append((h3_idx, round(lt, 5), round(ln, 5)))
+
+        # 5. PrediÃ§Ã£o em lote
         try:
             model, scaler = _get_grid_model_and_scaler(model_key)
         except Exception as e:
@@ -1136,6 +1265,7 @@ class PredictGridView(APIView):
 
         if model_key == "stacking":
             import joblib
+            import os
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             dataset_dir = os.path.join(project_root, "dataset")
             base_preds = {}
